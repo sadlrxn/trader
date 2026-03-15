@@ -1,7 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "trader"
 version = "0.1.0"
-description = "Add your description here"
+description = "Interactive Brokers momentum trading bot with terminal UI and gRPC control."
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "exchange-calendars>=4.7",
+    "grpcio==1.71.2",
+    "grpcio-tools==1.71.2",
+    "ibapi",
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.8.0",
+    "textual>=3.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[project.scripts]
+trader = "trader.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trader"]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+ibapi = { path = "ibga", editable = true }

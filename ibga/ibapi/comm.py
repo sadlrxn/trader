@@ -22,14 +22,19 @@ def make_msg_proto(msgId: int, protobufData: bytes) -> bytes:
     msg = struct.pack(f"!I{len(byteArray)}s", len(byteArray), byteArray)
     return msg
 
-def make_msg(msgId:int, useRawIntMsgId: bool, text: str) -> bytes:
-    """adds the length prefix"""
-    if useRawIntMsgId:
-        text = msgId.to_bytes(4, 'big') + str.encode(text)
-    else:
-        text = str.encode(make_field(msgId) + text)
+def make_msg(msgId:int | str, useRawIntMsgId: bool | None = None, text: str | None = None) -> bytes:
+    """Add the length prefix while supporting both legacy and current call shapes."""
 
-    msg = struct.pack(f"!I{len(text)}s", len(text), text)
+    if text is None:
+        payload = str.encode(str(msgId))
+        return struct.pack(f"!I{len(payload)}s", len(payload), payload)
+
+    if useRawIntMsgId:
+        payload = msgId.to_bytes(4, 'big') + str.encode(text)
+    else:
+        payload = str.encode(make_field(msgId) + text)
+
+    msg = struct.pack(f"!I{len(payload)}s", len(payload), payload)
     return msg
 
 def make_initial_msg(text: str) -> bytes:

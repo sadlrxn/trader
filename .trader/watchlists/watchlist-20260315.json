@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-03-15T17:58:02.706290-04:00",
+  "watchlist": [
+    {
+      "symbol": "BIAF",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "19115",
+      "percent_change": "0.07"
+    },
+    {
+      "symbol": "AIFF",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "59337",
+      "percent_change": "-0.75"
+    },
+    {
+      "symbol": "SVCO",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "460",
+      "percent_change": "1.01"
+    },
+    {
+      "symbol": "ELPW",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "5742",
+      "percent_change": "0.85"
+    },
+    {
+      "symbol": "PLYX",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "776",
+      "percent_change": "0.33"
+    },
+    {
+      "symbol": "CVGI",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "0",
+      "percent_change": "1.82"
+    },
+    {
+      "symbol": "EDHL",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "0",
+      "percent_change": "2.90"
+    },
+    {
+      "symbol": "LGVN",
+      "premarket_high": "0",
+      "premarket_low": "0",
+      "volume": "1560",
+      "percent_change": "-0.98"
+    }
+  ]
+}

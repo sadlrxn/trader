@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package trader.v1;
+
+message Empty {}
+
+message StreamRequest {
+  uint32 interval_ms = 1;
+}
+
+message HealthResponse {
+  string status = 1;
+  bool connected = 2;
+  bool market_open = 3;
+}
+
+message ActionResponse {
+  string status = 1;
+}
+
+message StopUpdateRequest {
+  string symbol = 1;
+  string new_stop = 2;
+  string reason = 3;
+}
+
+message PositionSnapshot {
+  string symbol = 1;
+  uint32 quantity = 2;
+  uint32 remaining_quantity = 3;
+  string entry_price = 4;
+  string stop_price = 5;
+  string target_price = 6;
+  string signal_type = 7;
+  string opened_at = 8;
+  string realized_pnl = 9;
+  bool target_filled = 10;
+}
+
+message OrderSnapshot {
+  uint32 order_id = 1;
+  string symbol = 2;
+  string purpose = 3;
+  string side = 4;
+  uint32 quantity = 5;
+  string status = 6;
+  string limit_price = 7;
+  string stop_price = 8;
+  string filled_quantity = 9;
+  string avg_fill_price = 10;
+}
+
+message QuoteSnapshot {
+  string symbol = 1;
+  string bid = 2;
+  string ask = 3;
+  string last = 4;
+  string volume = 5;
+  string updated_at = 6;
+}
+
+message RuntimeState {
+  bool connected = 1;
+  bool market_open = 2;
+  bool trading_enabled = 3;
+  string last_error = 4;
+  string equity = 5;
+  string realized_pnl = 6;
+  repeated string watchlist = 7;
+  repeated string market_data_symbols = 8;
+  repeated PositionSnapshot positions = 9;
+  repeated OrderSnapshot orders = 10;
+  repeated QuoteSnapshot quotes = 11;
+  repeated string logs = 12;
+  string grpc_target = 13;
+}
+
+service TraderControl {
+  rpc Health(Empty) returns (HealthResponse);
+  rpc GetState(Empty) returns (RuntimeState);
+  rpc WatchRuntime(StreamRequest) returns (stream RuntimeState);
+  rpc PauseTrading(Empty) returns (ActionResponse);
+  rpc ResumeTrading(Empty) returns (ActionResponse);
+  rpc UpdateStop(StopUpdateRequest) returns (RuntimeState);
+}
