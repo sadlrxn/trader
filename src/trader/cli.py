@@ -41,29 +41,32 @@ def main() -> None:
         _run_check(settings)
         return
 
+    enable_rpc = command in {"grpc", "rpc"}
     use_tui = command not in {"grpc", "rpc"} and not getattr(args, "no_tui", False) and settings.trader_enable_tui
     configure_logging(settings.trader_log_level, sink=log_sink, console=not use_tui)
 
     runtime = TradingRuntime(settings=settings, log_sink=log_sink)
-    rpc_server = RpcServer(runtime=runtime, settings=settings)
+    rpc_server = RpcServer(runtime=runtime, settings=settings) if enable_rpc else None
     if not use_tui:
-        asyncio.run(run_headless(runtime=runtime, rpc_server=rpc_server))
+        asyncio.run(run_headless(runtime=runtime, rpc_server=rpc_server, enable_rpc=enable_rpc))
         return
 
     app = TraderTui(runtime=runtime, rpc_server=rpc_server)
     app.run()
 
 
-async def run_headless(runtime: TradingRuntime, rpc_server: RpcServer) -> None:
+async def run_headless(runtime: TradingRuntime, rpc_server: RpcServer | None, enable_rpc: bool) -> None:
     """Run the bot without the Textual UI."""
 
     await runtime.start()
-    await rpc_server.start()
+    if enable_rpc and rpc_server is not None:
+        await rpc_server.start()
     try:
         while True:
             await asyncio.sleep(1)
     finally:
-        await rpc_server.stop()
+        if rpc_server is not None:
+            await rpc_server.stop()
         await runtime.stop()
 
 

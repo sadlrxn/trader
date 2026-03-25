@@ -10,6 +10,8 @@ This project uses:
 - a gRPC control plane
 - SQLite for local state, orders, and trade events
 
+Market data comes directly from the `ibga` / IBKR socket client. The gRPC server is only an optional local control surface.
+
 ## Before You Run
 
 Read the environment variables in [`.env.example`](/home/xn/nudes/pprog/trader/.env.example).
@@ -23,13 +25,15 @@ That file contains the runtime configuration for:
 - daily watchlist JSON path
 - TUI enable flag
 
-Default local IB Gateway settings in this repo:
+Default local paper settings in this repo:
 
 ```env
 IB_HOST=127.0.0.1
 IB_PORT=7497
 IB_PAPER=true
 ```
+
+If you are running IB Gateway instead of TWS, verify the socket port. A common paper-trading IB Gateway default is `4002`.
 
 If you want local overrides, create or edit `.env`.
 
@@ -60,7 +64,7 @@ uv run --python 3.12 trader check
 Run the tests:
 
 ```bash
-uv run --python 3.12 pytest
+uv run --python 3.12 --extra dev pytest
 ```
 
 ## Run The Bot
@@ -82,6 +86,8 @@ Run headless without the Textual UI:
 ```bash
 uv run --python 3.12 trader bot --no-tui
 ```
+
+`trader bot` and `trader bot --no-tui` use the direct IBKR client only and do not start the gRPC server.
 
 ## TUI Layout
 
@@ -107,6 +113,8 @@ Main shortcuts:
 Press the same shortcut again to turn full-screen mode off.
 
 ## gRPC
+
+This control plane is only started by the explicit `trader grpc` or `trader rpc` commands.
 
 Default target:
 

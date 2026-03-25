@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from rich.text import Text
@@ -12,6 +15,8 @@ from textual.widgets import DataTable, Footer, Header, RichLog, Static
 
 from trader.rpc import RpcServer
 from trader.runtime import TradingRuntime
+
+logger = logging.getLogger(__name__)
 
 
 class TraderTui(App[None]):
@@ -124,12 +129,12 @@ class TraderTui(App[None]):
         Binding("escape", "clear_focus", "Clear"),
     ]
 
-    def __init__(self, runtime: TradingRuntime, rpc_server: RpcServer) -> None:
+    def __init__(self, runtime: TradingRuntime, rpc_server: RpcServer | None) -> None:
         """Initialize the Textual application.
 
         Args:
             runtime: Shared trading runtime.
-            rpc_server: Embedded RPC server.
+            rpc_server: Optional embedded RPC server.
         """
 
         super().__init__()
@@ -137,6 +142,7 @@ class TraderTui(App[None]):
         self._rpc_server = rpc_server
         self._rendered_log_lines = 0
         self._focused_panel: str | None = None
+        self._startup_task: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the Textual layout."""
@@ -201,14 +207,28 @@ class TraderTui(App[None]):
         rpc_panel = self.query_one("#rpc-panel", Static)
         rpc_panel.border_title = "gRPC Control"
         self.set_interval(1, self._refresh_view)
-        await self._runtime.start()
-        await self._rpc_server.start()
+        self._startup_task = asyncio.create_task(self._startup_services(), name="tui-startup")
 
     async def on_unmount(self) -> None:
         """Stop runtime services during shutdown."""
 
-        await self._rpc_server.stop()
+        if self._startup_task is not None:
+            self._startup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._startup_task
+        if self._rpc_server is not None:
+            await self._rpc_server.stop()
         await self._runtime.stop()
+
+    async def _startup_services(self) -> None:
+        """Start the runtime services without blocking the initial TUI render."""
+
+        try:
+            await self._runtime.start()
+            if self._rpc_server is not None:
+                await self._rpc_server.start()
+        except Exception:
+            logger.exception("Failed to start runtime services.")
 
     async def action_quit_bot(self) -> None:
         """Quit the terminal application."""
@@ -355,6 +375,15 @@ class TraderTui(App[None]):
             )
         )
         rpc_panel = self.query_one("#rpc-panel", Static)
+        if self._rpc_server is None:
+            rpc_panel.update(
+                self._card_markup(
+                    title="gRPC",
+                    primary="[bold yellow]Disabled[/bold yellow]",
+                    secondary="Market data flows directly from the IBKR client in bot mode.",
+                )
+            )
+            return
         rpc_panel.update(
             self._card_markup(
                 title="gRPC",

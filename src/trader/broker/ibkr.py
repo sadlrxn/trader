@@ -365,21 +365,47 @@ class IBBrokerAdapter:
 
         self._loop = asyncio.get_running_loop()
         self._app = _IBApp(loop=self._loop, queue=self._queue)
-        await asyncio.to_thread(
-            self._app.connect,
-            self._settings.ib_host,
-            self._settings.ib_port,
-            self._settings.ib_client_id,
-        )
+        timeout_seconds = max(1, self._settings.ib_connect_timeout_seconds)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._app.connect,
+                    self._settings.ib_host,
+                    self._settings.ib_port,
+                    self._settings.ib_client_id,
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError as error:
+            await self.disconnect()
+            message = (
+                f"Timed out connecting to IBKR at {self._settings.ib_host}:{self._settings.ib_port} "
+                f"after {timeout_seconds}s."
+            )
+            raise TimeoutError(message) from error
+        if not self._app.isConnected():
+            message = f"Unable to connect to IBKR at {self._settings.ib_host}:{self._settings.ib_port}."
+            raise ConnectionError(message)
         self._run_thread = threading.Thread(target=self._app.run, daemon=True, name="ibkr-reader")
         self._run_thread.start()
 
     async def disconnect(self) -> None:
         """Disconnect from IBKR."""
 
-        if self._app is None:
+        app = self._app
+        run_thread = self._run_thread
+        self._app = None
+        self._run_thread = None
+        if app is None:
             return
-        await asyncio.to_thread(self._app.disconnect)
+        await asyncio.to_thread(app.disconnect)
+        if run_thread is not None and run_thread.is_alive():
+            await asyncio.to_thread(run_thread.join, 1)
+
+    def is_connected(self) -> bool:
+        """Return whether the IBKR socket session is currently connected."""
+
+        return self._app is not None and self._app.isConnected()
 
     async def next_event(self) -> BrokerEvent:
         """Return the next broker event."""
@@ -389,7 +415,7 @@ class IBBrokerAdapter:
     async def sync_account(self) -> None:
         """Request account summary and open positions."""
 
-        if self._app is None:
+        if self._app is None or not self.is_connected():
             return
         req_id = self._app.next_request_id()
         await asyncio.to_thread(self._app.reqAccountSummary, req_id, "All", "NetLiquidation")
@@ -397,7 +423,7 @@ class IBBrokerAdapter:
     async def refresh_scanner(self) -> None:
         """Request a fresh top-movers scanner snapshot."""
 
-        if self._app is None:
+        if self._app is None or not self.is_connected():
             return
         subscription = ScannerSubscription()
         subscription.numberOfRows = self._settings.trader_scan_max_symbols
@@ -415,7 +441,7 @@ class IBBrokerAdapter:
     async def cancel_scanner(self) -> None:
         """Cancel the active scanner subscription."""
 
-        if self._app is None or self._scanner_request_id is None:
+        if self._app is None or self._scanner_request_id is None or not self.is_connected():
             return
         await asyncio.to_thread(self._app.cancelScannerSubscription, self._scanner_request_id)
         self._scanner_request_id = None
@@ -423,7 +449,7 @@ class IBBrokerAdapter:
     async def subscribe_symbol(self, symbol: str) -> None:
         """Subscribe to market data and minute bars for one symbol."""
 
-        if self._app is None:
+        if self._app is None or not self.is_connected():
             return
         contract = build_stock_contract(symbol)
         market_req_id = self._market_data_requests.get(symbol)
@@ -499,7 +525,7 @@ class IBBrokerAdapter:
     async def cancel_order(self, order_id: int) -> None:
         """Cancel one active order."""
 
-        if self._app is None:
+        if self._app is None or not self.is_connected():
             return
         await asyncio.to_thread(self._app.cancelOrder, order_id, OrderCancel())
 
@@ -520,7 +546,7 @@ class IBBrokerAdapter:
     ) -> OrderRecord:
         """Submit one order and return the tracked order record."""
 
-        if self._app is None:
+        if self._app is None or not self.is_connected():
             raise RuntimeError("Broker is not connected.")
         order_id = self._app.next_order_id()
         record = OrderRecord(

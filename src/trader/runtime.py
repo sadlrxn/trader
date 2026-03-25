@@ -57,7 +57,14 @@ class TradingRuntime:
         if self._started:
             return
         self.settings.validate_runtime_mode()
-        await self.broker.connect()
+        try:
+            await self.broker.connect()
+        except (ConnectionError, TimeoutError, OSError) as error:
+            self.status.connected = False
+            self.status.last_error = str(error)
+            self.state_store.save_status(self.snapshot_status())
+            logger.error(self.status.last_error)
+            return
         await self.broker.sync_account()
         await self._load_daily_watchlist()
         await self._subscribe_fallback_symbols()
