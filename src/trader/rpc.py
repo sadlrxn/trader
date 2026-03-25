@@ -8,6 +8,10 @@ from decimal import Decimal, InvalidOperation
 import grpc
 
 from trader.config import Settings
+from trader.proto_codegen import ensure_generated
+
+ensure_generated()
+
 from trader.grpc_gen.grpc.reflection.v1alpha import reflection_pb2, reflection_pb2_grpc
 from trader.grpc_gen import trader_pb2, trader_pb2_grpc
 from trader.runtime import TradingRuntime

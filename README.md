@@ -67,6 +67,12 @@ Run the tests:
 uv run --python 3.12 --extra dev pytest
 ```
 
+Compile the Python code before running:
+
+```bash
+python3 -m compileall src tests main.py
+```
+
 ## Run The Bot
 
 Start the TUI:
@@ -89,6 +95,8 @@ uv run --python 3.12 trader bot --no-tui
 
 `trader bot` and `trader bot --no-tui` use the direct IBKR client only and do not start the gRPC server.
 
+If IBKR is unreachable, the bot now fails cleanly, records the broker error in runtime state, and does not continue spamming market-data or scanner requests into a dead connection.
+
 ## TUI Layout
 
 The terminal is split into 3 sections:
@@ -96,6 +104,15 @@ The terminal is split into 3 sections:
 - left `1/4`: bot logs
 - middle `2/4`: main content
 - right `1/4`: watchlist, orders, gRPC info
+
+Top summary cards show:
+
+- broker connection
+- `Balance`
+- `Market Status` with `Open`, `Pre-Market`, or `Closed`
+- signed realized P&L with `+` / `-` when non-zero
+
+The top header bar also mirrors the live `Balance`, `Market Status`, and signed `P&L` alongside the clock.
 
 Main shortcuts:
 
@@ -115,6 +132,8 @@ Press the same shortcut again to turn full-screen mode off.
 ## gRPC
 
 This control plane is only started by the explicit `trader grpc` or `trader rpc` commands.
+
+The Python gRPC bindings are regenerated from [`proto/trader.proto`](/home/xn/nudes/pprog/trader/proto/trader.proto) and [`proto/grpc/reflection/v1alpha/reflection.proto`](/home/xn/nudes/pprog/trader/proto/grpc/reflection/v1alpha/reflection.proto) when those source files are newer than the checked-in generated modules.
 
 Default target:
 
@@ -187,6 +206,20 @@ Typical reasons:
 - IB Gateway / TWS API connection is up but quote ticks are not streaming
 
 The panel still shows subscribed symbols, and VWAP can be derived from recent bars when available.
+
+Live market rows are color-coded:
+
+- green when the latest price moved up versus the prior refresh
+- red when the latest price moved down
+
+## Trading Logic Notes
+
+- Market data comes directly from the IBKR socket client in `ibga`; the gRPC server is not used for quote transport.
+- The bot trades only when real account equity is available from IBKR. It no longer sizes entries from a fallback balance.
+- A first-red exit only uses completed bars, not a still-forming minute candle.
+- ORB entries only trigger on the breakout cross instead of re-firing repeatedly after the level is already broken.
+- Bull-flag and flat-top entries now require breakout volume confirmation.
+- If broker positions and local managed positions disagree, trading is paused and the mismatch is surfaced as an error.
 
 ## Project Notes
 

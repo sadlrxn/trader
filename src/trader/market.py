@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 import exchange_calendars as xcals
@@ -35,7 +35,37 @@ class MarketClock:
         timestamp = pd.Timestamp(current)
         return bool(self._calendar.is_open_on_minute(timestamp))
 
-    def market_status_text(self, when: datetime | None = None) -> str:
+    def market_phase(self, when: datetime | None = None, premarket_start: time | None = None) -> str:
+        """Return the current market phase: open, pre-market, or closed."""
+
+        current = (when or self.now()).astimezone(self._timezone)
+        session = pd.Timestamp(current.date())
+        if not self._calendar.is_session(session):
+            return "closed"
+        current_timestamp = pd.Timestamp(current)
+        session_open = self._calendar.session_open(session).tz_convert(self._timezone)
+        session_close = self._calendar.session_close(session).tz_convert(self._timezone)
+        if session_open <= current_timestamp <= session_close:
+            return "open"
+        if premarket_start is not None:
+            premarket_timestamp = pd.Timestamp(
+                current.replace(
+                    hour=premarket_start.hour,
+                    minute=premarket_start.minute,
+                    second=0,
+                    microsecond=0,
+                )
+            )
+            if premarket_timestamp <= current_timestamp < session_open:
+                return "pre-market"
+        return "closed"
+
+    def market_status_text(self, when: datetime | None = None, premarket_start: time | None = None) -> str:
         """Return a human-readable market status label."""
 
-        return "Market Open" if self.is_market_open(when) else "Market Closed"
+        phase = self.market_phase(when=when, premarket_start=premarket_start)
+        if phase == "open":
+            return "Market Open"
+        if phase == "pre-market":
+            return "Pre-Market"
+        return "Market Closed"

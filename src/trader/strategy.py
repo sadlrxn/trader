@@ -71,7 +71,8 @@ class StrategyEngine:
         entry_price = max(first_bar.high, premarket_high) + _TICK
         average_volume = _average_volume(regular_bars[:-1], window=20)
         volume_gate = average_volume > 0 and latest_bar.volume >= average_volume * Decimal("1.5")
-        crossed = latest_bar.high >= entry_price or quote.last >= entry_price
+        prior_high = regular_bars[-2].high
+        crossed = prior_high < entry_price and (latest_bar.high >= entry_price or quote.last >= entry_price)
         if not volume_gate or not crossed:
             return None
 
@@ -118,6 +119,9 @@ class StrategyEngine:
         trigger = resistance + _TICK
         if pullback[-1].high < trigger and quote.last < trigger:
             return None
+        average_pullback_volume = _average_volume(pullback[:-1] or pullback, window=3)
+        if average_pullback_volume > 0 and pullback[-1].volume < average_pullback_volume:
+            return None
 
         target_price = trigger + ((trigger - (pullback_low - _TICK)) * self._settings.trader_target_r_multiple)
         return SignalDecision(
@@ -149,6 +153,9 @@ class StrategyEngine:
 
         trigger = resistance + _TICK
         if window[-1].high < trigger and quote.last < trigger:
+            return None
+        average_volume = _average_volume(window[:-1], window=5)
+        if average_volume > 0 and window[-1].volume < average_volume * Decimal("1.2"):
             return None
 
         stop_price = min(recent_lows) - _TICK
@@ -201,5 +208,8 @@ def should_exit_on_first_red(position_entry_time: datetime, bars: Sequence[Bar],
 
     if target_filled or not bars:
         return False
-    latest = bars[-1]
+    completed_bars = [bar for bar in bars if bar.is_complete]
+    if not completed_bars:
+        return False
+    latest = completed_bars[-1]
     return latest.timestamp >= position_entry_time and latest.is_red()

@@ -84,6 +84,11 @@ class _IBApp(EWrapper, EClient):
             self._next_order_id += 1
             return order_id
 
+    def wait_until_ready(self, timeout: float) -> bool:
+        """Return whether IBKR published the initial order-id readiness signal."""
+
+        return self._ready.wait(timeout=timeout)
+
     def register_market_data(self, req_id: int, symbol: str) -> None:
         """Track the symbol attached to a market data request."""
 
@@ -203,15 +208,15 @@ class _IBApp(EWrapper, EClient):
         """Forward completed historical bars into the normalized event queue."""
 
         super().historicalData(reqId, bar)
-        self._emit_bar(reqId=reqId, bar=bar)
+        self._emit_bar(reqId=reqId, bar=bar, is_complete=True)
 
     def historicalDataUpdate(self, reqId: int, bar: BarData) -> None:
         """Forward historical streaming updates into the normalized event queue."""
 
         super().historicalDataUpdate(reqId, bar)
-        self._emit_bar(reqId=reqId, bar=bar)
+        self._emit_bar(reqId=reqId, bar=bar, is_complete=False)
 
-    def _emit_bar(self, reqId: int, bar: BarData) -> None:
+    def _emit_bar(self, reqId: int, bar: BarData, is_complete: bool) -> None:
         """Normalize one historical bar."""
 
         symbol = self._historical_symbols.get(reqId)
@@ -226,6 +231,7 @@ class _IBApp(EWrapper, EClient):
             low=Decimal(str(bar.low)),
             close=Decimal(str(bar.close)),
             volume=Decimal(str(bar.volume)),
+            is_complete=is_complete,
         )
         self._emit(
             BrokerEvent(
@@ -290,6 +296,26 @@ class _IBApp(EWrapper, EClient):
 
         super().accountSummaryEnd(reqId)
         self._emit(BrokerEvent(kind=BrokerEventKind.ACCOUNT_END, timestamp=datetime.now(tz=UTC)))
+
+    def position(self, account: str, contract: Contract, pos: Decimal, avgCost: float) -> None:
+        """Forward live broker positions into the normalized event queue."""
+
+        super().position(account, contract, pos, avgCost)
+        self._emit(
+            BrokerEvent(
+                kind=BrokerEventKind.POSITION,
+                timestamp=datetime.now(tz=UTC),
+                symbol=contract.symbol,
+                position_quantity=Decimal(pos),
+                position_avg_cost=Decimal(str(avgCost)),
+            )
+        )
+
+    def positionEnd(self) -> None:
+        """Emit the broker position snapshot completion event."""
+
+        super().positionEnd()
+        self._emit(BrokerEvent(kind=BrokerEventKind.POSITION_END, timestamp=datetime.now(tz=UTC)))
 
     def orderStatus(
         self,
@@ -388,6 +414,14 @@ class IBBrokerAdapter:
             raise ConnectionError(message)
         self._run_thread = threading.Thread(target=self._app.run, daemon=True, name="ibkr-reader")
         self._run_thread.start()
+        ready = await asyncio.to_thread(self._app.wait_until_ready, timeout_seconds)
+        if not ready or not self._app.isConnected():
+            await self.disconnect()
+            message = (
+                f"IBKR connected at {self._settings.ib_host}:{self._settings.ib_port} "
+                f"but never became API-ready within {timeout_seconds}s."
+            )
+            raise ConnectionError(message)
 
     async def disconnect(self) -> None:
         """Disconnect from IBKR."""
@@ -412,13 +446,23 @@ class IBBrokerAdapter:
 
         return await self._queue.get()
 
+    async def _call_app(self, func, *args) -> None:
+        """Run one IB API request and normalize socket-send failures."""
+
+        try:
+            await asyncio.to_thread(func, *args)
+        except (BrokenPipeError, OSError, AttributeError) as error:
+            await self.disconnect()
+            raise ConnectionError("IBKR connection dropped while sending a request.") from error
+
     async def sync_account(self) -> None:
         """Request account summary and open positions."""
 
         if self._app is None or not self.is_connected():
             return
         req_id = self._app.next_request_id()
-        await asyncio.to_thread(self._app.reqAccountSummary, req_id, "All", "NetLiquidation")
+        await self._call_app(self._app.reqAccountSummary, req_id, "All", "NetLiquidation")
+        await self._call_app(self._app.reqPositions)
 
     async def refresh_scanner(self) -> None:
         """Request a fresh top-movers scanner snapshot."""
@@ -436,14 +480,14 @@ class IBBrokerAdapter:
         req_id = self._app.next_request_id()
         self._scanner_request_id = req_id
         self._app.register_scanner(req_id)
-        await asyncio.to_thread(self._app.reqScannerSubscription, req_id, subscription, [], [])
+        await self._call_app(self._app.reqScannerSubscription, req_id, subscription, [], [])
 
     async def cancel_scanner(self) -> None:
         """Cancel the active scanner subscription."""
 
         if self._app is None or self._scanner_request_id is None or not self.is_connected():
             return
-        await asyncio.to_thread(self._app.cancelScannerSubscription, self._scanner_request_id)
+        await self._call_app(self._app.cancelScannerSubscription, self._scanner_request_id)
         self._scanner_request_id = None
 
     async def subscribe_symbol(self, symbol: str) -> None:
@@ -457,14 +501,14 @@ class IBBrokerAdapter:
             market_req_id = self._app.next_request_id()
             self._market_data_requests[symbol] = market_req_id
             self._app.register_market_data(market_req_id, symbol)
-            await asyncio.to_thread(self._app.reqMktData, market_req_id, contract, "", False, False, [])
+            await self._call_app(self._app.reqMktData, market_req_id, contract, "", False, False, [])
 
         historical_req_id = self._historical_requests.get(symbol)
         if historical_req_id is None:
             historical_req_id = self._app.next_request_id()
             self._historical_requests[symbol] = historical_req_id
             self._app.register_historical(historical_req_id, symbol)
-            await asyncio.to_thread(
+            await self._call_app(
                 self._app.reqHistoricalData,
                 historical_req_id,
                 contract,
@@ -511,6 +555,50 @@ class IBBrokerAdapter:
             order=build_limit_order("SELL", quantity, limit_price, tif="GTC"),
         )
 
+    async def place_target_bracket_orders(
+        self,
+        symbol: str,
+        target_quantity: int,
+        target_price: Decimal,
+        stop_quantity: int,
+        stop_price: Decimal,
+        oca_group: str,
+    ) -> tuple[OrderRecord, OrderRecord]:
+        """Submit a target order and protective stop in the same OCA group."""
+
+        target_order = build_limit_order(
+            "SELL",
+            target_quantity,
+            target_price,
+            tif="GTC",
+            transmit=False,
+            oca_group=oca_group,
+            oca_type=2,
+        )
+        stop_order = build_stop_order(
+            "SELL",
+            stop_quantity,
+            stop_price,
+            transmit=True,
+            oca_group=oca_group,
+            oca_type=2,
+        )
+        target_record = await self._place_order(
+            symbol=symbol,
+            purpose=OrderPurpose.TARGET,
+            side="SELL",
+            quantity=target_quantity,
+            order=target_order,
+        )
+        stop_record = await self._place_order(
+            symbol=symbol,
+            purpose=OrderPurpose.STOP,
+            side="SELL",
+            quantity=stop_quantity,
+            order=stop_order,
+        )
+        return target_record, stop_record
+
     async def place_exit_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
         """Submit a marketable limit order to exit a position immediately."""
 
@@ -527,7 +615,7 @@ class IBBrokerAdapter:
 
         if self._app is None or not self.is_connected():
             return
-        await asyncio.to_thread(self._app.cancelOrder, order_id, OrderCancel())
+        await self._call_app(self._app.cancelOrder, order_id, OrderCancel())
 
     async def replace_stop_order(self, symbol: str, quantity: int, stop_price: Decimal, old_order_id: int | None) -> OrderRecord:
         """Replace an existing stop with a new stop order."""
@@ -560,7 +648,7 @@ class IBBrokerAdapter:
         )
         self._app.register_order(record)
         contract = build_stock_contract(symbol)
-        await asyncio.to_thread(self._app.placeOrder, order_id, contract, order)
+        await self._call_app(self._app.placeOrder, order_id, contract, order)
         return record
 
 
@@ -575,7 +663,15 @@ def build_stock_contract(symbol: str) -> Contract:
     return contract
 
 
-def build_limit_order(action: str, quantity: int, limit_price: Decimal, tif: str) -> Order:
+def build_limit_order(
+    action: str,
+    quantity: int,
+    limit_price: Decimal,
+    tif: str,
+    transmit: bool = True,
+    oca_group: str = "",
+    oca_type: int = 0,
+) -> Order:
     """Build a standard limit order."""
 
     order = Order()
@@ -585,11 +681,20 @@ def build_limit_order(action: str, quantity: int, limit_price: Decimal, tif: str
     order.lmtPrice = float(limit_price)
     order.tif = tif
     order.outsideRth = True
-    order.transmit = True
+    order.transmit = transmit
+    order.ocaGroup = oca_group
+    order.ocaType = oca_type
     return order
 
 
-def build_stop_order(action: str, quantity: int, stop_price: Decimal) -> Order:
+def build_stop_order(
+    action: str,
+    quantity: int,
+    stop_price: Decimal,
+    transmit: bool = True,
+    oca_group: str = "",
+    oca_type: int = 0,
+) -> Order:
     """Build a protective stop-market order."""
 
     order = Order()
@@ -599,7 +704,9 @@ def build_stop_order(action: str, quantity: int, stop_price: Decimal) -> Order:
     order.auxPrice = float(stop_price)
     order.tif = "GTC"
     order.outsideRth = True
-    order.transmit = True
+    order.transmit = transmit
+    order.ocaGroup = oca_group
+    order.ocaType = oca_type
     return order
 
 

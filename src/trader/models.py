@@ -53,6 +53,7 @@ class Bar(BaseModel):
     low: Decimal
     close: Decimal
     volume: Decimal
+    is_complete: bool = True
 
     def is_red(self) -> bool:
         """Return whether the candle closed below its open."""
@@ -177,6 +178,8 @@ class BrokerEvent(BaseModel):
     scanner: ScannerCandidate | None = None
     order: OrderRecord | None = None
     position: ManagedPosition | None = None
+    position_quantity: Decimal = Decimal("0")
+    position_avg_cost: Decimal = Decimal("0")
     account_tag: str = ""
     account_value: str = ""
 

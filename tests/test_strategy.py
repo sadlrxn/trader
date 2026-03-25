@@ -75,6 +75,47 @@ def test_first_red_exit_only_applies_before_target_fill() -> None:
     assert should_exit_on_first_red(bars[0].timestamp, bars, target_filled=True) is False
 
 
+def test_first_red_exit_ignores_incomplete_latest_bar() -> None:
+    """Do not exit on a still-forming red candle."""
+
+    bars = [
+        _bar("AMD", datetime(2026, 3, 15, 14, 0, tzinfo=UTC), "10.00", "10.10", "9.95", "10.08", "50000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 14, 1, tzinfo=UTC),
+            "10.08",
+            "10.12",
+            "10.00",
+            "10.01",
+            "45000",
+            is_complete=False,
+        ),
+    ]
+    assert should_exit_on_first_red(bars[0].timestamp, bars, target_filled=False) is False
+
+
+def test_orb_only_triggers_on_initial_breakout_cross() -> None:
+    """Do not keep firing the same ORB after the breakout bar already cleared the level."""
+
+    engine = StrategyEngine(Settings())
+    bars = [
+        _bar("AMD", datetime(2026, 3, 15, 13, 0, tzinfo=UTC), "9.60", "9.90", "9.55", "9.85", "20000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "9.90", "10.00", "9.80", "9.95", "50000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "9.95", "10.05", "9.92", "10.03", "150000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 32, tzinfo=UTC), "10.03", "10.08", "10.00", "10.06", "170000"),
+    ]
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.05"),
+        ask=Decimal("10.07"),
+        last=Decimal("10.06"),
+        volume=Decimal("170000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+    signal = engine.evaluate("AMD", bars, quote)
+    assert signal is None or signal.signal_type != SignalType.ORB
+
+
 def _bar(
     symbol: str,
     timestamp: datetime,
@@ -83,6 +124,7 @@ def _bar(
     low_price: str,
     close_price: str,
     volume: str,
+    is_complete: bool = True,
 ) -> Bar:
     """Build a typed test bar."""
 
@@ -94,4 +136,5 @@ def _bar(
         low=Decimal(low_price),
         close=Decimal(close_price),
         volume=Decimal(volume),
+        is_complete=is_complete,
     )

@@ -41,6 +41,8 @@ class RiskManager:
 
         if not trading_enabled:
             return RiskDecision(approved=False, reason="Trading is paused.")
+        if equity <= Decimal("0"):
+            return RiskDecision(approved=False, reason="Account equity is unavailable.")
         if open_positions >= self._settings.trader_max_open_positions:
             return RiskDecision(approved=False, reason="Max open positions reached.")
         if realized_pnl <= -(equity * self._settings.trader_max_daily_loss):

@@ -46,6 +46,7 @@ class TradingRuntime:
         self.bars: dict[str, list[Bar]] = defaultdict(list)
         self.quotes = {}
         self._scanner_batch: list[str] = []
+        self._broker_positions: dict[str, Decimal] = {}
         self._tasks: list[asyncio.Task[None]] = []
         self._stop_event = asyncio.Event()
         self._started = False
@@ -59,23 +60,24 @@ class TradingRuntime:
         self.settings.validate_runtime_mode()
         try:
             await self.broker.connect()
-        except (ConnectionError, TimeoutError, OSError) as error:
+            await self.broker.sync_account()
+            await self._load_daily_watchlist()
+            await self._subscribe_fallback_symbols()
+            await self.broker.refresh_scanner()
+        except (ConnectionError, TimeoutError, OSError, RuntimeError) as error:
+            await self.broker.disconnect()
             self.status.connected = False
             self.status.last_error = str(error)
             self.state_store.save_status(self.snapshot_status())
             logger.error(self.status.last_error)
             return
-        await self.broker.sync_account()
-        await self._load_daily_watchlist()
-        await self._subscribe_fallback_symbols()
-        await self.broker.refresh_scanner()
         self._started = True
         self._tasks = [
             asyncio.create_task(self._consume_broker_events(), name="broker-events"),
             asyncio.create_task(self._refresh_market_status(), name="market-status"),
             asyncio.create_task(self._refresh_scanner_loop(), name="scanner-loop"),
         ]
-        logger.info(self.market_clock.market_status_text())
+        logger.info(self.market_phase_text())
 
     async def stop(self) -> None:
         """Stop all workers and disconnect from IBKR."""
@@ -145,6 +147,16 @@ class TradingRuntime:
         weighted_total = sum((bar.close * bar.volume for bar in bars), start=Decimal("0"))
         return weighted_total / volume_total
 
+    def market_phase(self) -> str:
+        """Return the current market phase for UI surfaces."""
+
+        return self.market_clock.market_phase(premarket_start=self.settings.trader_premarket_start)
+
+    def market_phase_text(self) -> str:
+        """Return a human-readable market phase label."""
+
+        return self.market_clock.market_status_text(premarket_start=self.settings.trader_premarket_start)
+
     async def _consume_broker_events(self) -> None:
         """Process normalized broker events forever."""
 
@@ -168,13 +180,28 @@ class TradingRuntime:
         if event.kind is BrokerEventKind.ACCOUNT and event.account_tag == "NetLiquidation":
             self.status.equity = Decimal(event.account_value or "0")
             return
+        if event.kind is BrokerEventKind.POSITION:
+            if event.position_quantity:
+                self._broker_positions[event.symbol] = event.position_quantity
+            else:
+                self._broker_positions.pop(event.symbol, None)
+            return
+        if event.kind is BrokerEventKind.POSITION_END:
+            self._reconcile_broker_positions()
+            return
         if event.kind is BrokerEventKind.SCANNER and event.scanner is not None:
             if event.scanner.symbol not in self._scanner_batch:
                 self._scanner_batch.append(event.scanner.symbol)
             return
         if event.kind is BrokerEventKind.SCANNER_END:
-            await self.broker.cancel_scanner()
-            await self._apply_watchlist()
+            try:
+                await self.broker.cancel_scanner()
+                await self._apply_watchlist()
+            except ConnectionError as error:
+                self.status.connected = False
+                self.status.last_error = str(error)
+                self.state_store.save_status(self.snapshot_status())
+                logger.error(self.status.last_error)
             return
         if event.kind is BrokerEventKind.QUOTE and event.quote is not None:
             self.quotes[event.symbol] = event.quote
@@ -196,13 +223,13 @@ class TradingRuntime:
     async def _refresh_market_status(self) -> None:
         """Refresh the market-open flag on a timer."""
 
-        previous = None
+        previous_phase = None
         while not self._stop_event.is_set():
-            current = self.market_clock.is_market_open()
-            self.status.market_open = current
-            if current != previous:
-                logger.info(self.market_clock.market_status_text())
-                previous = current
+            current_phase = self.market_phase()
+            self.status.market_open = current_phase == "open"
+            if current_phase != previous_phase:
+                logger.info(self.market_phase_text())
+                previous_phase = current_phase
             await asyncio.sleep(15)
 
     async def _refresh_scanner_loop(self) -> None:
@@ -211,7 +238,13 @@ class TradingRuntime:
         while not self._stop_event.is_set():
             await asyncio.sleep(60)
             self._scanner_batch.clear()
-            await self.broker.refresh_scanner()
+            try:
+                await self.broker.refresh_scanner()
+            except ConnectionError as error:
+                self.status.connected = False
+                self.status.last_error = str(error)
+                self.state_store.save_status(self.snapshot_status())
+                logger.error(self.status.last_error)
 
     async def _apply_watchlist(self) -> None:
         """Subscribe market data for the latest scanner symbols."""
@@ -247,6 +280,8 @@ class TradingRuntime:
         if series and series[-1].timestamp == bar.timestamp:
             series[-1] = bar
         else:
+            if series:
+                series[-1].is_complete = True
             series.append(bar)
         del series[:-30]
 
@@ -265,7 +300,7 @@ class TradingRuntime:
             return
         decision = self.risk.size_signal(
             signal=signal,
-            equity=self.status.equity or Decimal("30000"),
+            equity=self.status.equity,
             realized_pnl=self.status.realized_pnl,
             open_positions=len(self.execution.positions),
             trading_enabled=self.status.trading_enabled,
@@ -275,6 +310,31 @@ class TradingRuntime:
             return
         self._last_signal_timestamp[symbol] = signal.timestamp
         await self.execution.enter_signal(signal=signal, quantity=decision.quantity)
+
+    def _reconcile_broker_positions(self) -> None:
+        """Pause trading when local state and broker positions disagree."""
+
+        broker_positions = {
+            symbol: int(quantity)
+            for symbol, quantity in self._broker_positions.items()
+            if int(quantity) != 0
+        }
+        managed_positions = {
+            symbol: position.remaining_quantity
+            for symbol, position in self.execution.positions.items()
+            if position.remaining_quantity != 0
+        }
+        if broker_positions == managed_positions:
+            return
+        mismatches = sorted(set(broker_positions) | set(managed_positions))
+        details = ", ".join(
+            f"{symbol}: broker={broker_positions.get(symbol, 0)} local={managed_positions.get(symbol, 0)}"
+            for symbol in mismatches
+        )
+        self.status.trading_enabled = False
+        self.status.last_error = f"Position mismatch detected. {details}"
+        self.state_store.save_status(self.snapshot_status())
+        logger.error(self.status.last_error)
 
     async def _load_daily_watchlist(self) -> None:
         """Load the saved daily watchlist and subscribe it before the new scanner pass completes."""

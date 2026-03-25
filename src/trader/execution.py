@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from trader.broker.ibkr import IBBrokerAdapter
 from trader.models import ManagedPosition, OrderPurpose, OrderRecord, Quote, SignalDecision, TradeEvent
@@ -101,10 +102,22 @@ class ExecutionService:
             and not self._has_open_order(symbol, OrderPurpose.TARGET)
         ):
             target_quantity = max(1, position.remaining_quantity // 2)
-            order = await self._broker.place_target_order(symbol, target_quantity, position.target_price)
-            self.orders[order.order_id] = order
-            self._state_store.save_order(order)
-            position.target_order_id = order.order_id
+            if position.stop_order_id is not None:
+                await self._broker.cancel_order(position.stop_order_id)
+            target_order, stop_order = await self._broker.place_target_bracket_orders(
+                symbol=symbol,
+                target_quantity=target_quantity,
+                target_price=position.target_price,
+                stop_quantity=position.remaining_quantity,
+                stop_price=position.stop_price,
+                oca_group=f"{symbol}-{uuid4().hex}",
+            )
+            self.orders[target_order.order_id] = target_order
+            self.orders[stop_order.order_id] = stop_order
+            self._state_store.save_order(target_order)
+            self._state_store.save_order(stop_order)
+            position.target_order_id = target_order.order_id
+            position.stop_order_id = stop_order.order_id
             self._state_store.save_position(position)
             logger.info("Submitted target order for %s at %s", symbol, position.target_price)
             return
@@ -260,6 +273,8 @@ class ExecutionService:
             )
         )
         if position.remaining_quantity == 0:
+            if position.target_order_id is not None and position.target_order_id != order.order_id:
+                await self._broker.cancel_order(position.target_order_id)
             self.positions.pop(order.symbol, None)
             self._state_store.delete_position(order.symbol)
             logger.info("Closed position for %s", order.symbol)

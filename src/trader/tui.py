@@ -6,6 +6,7 @@ import asyncio
 import logging
 from contextlib import suppress
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from rich.text import Text
 from textual.app import App, ComposeResult
@@ -143,6 +144,7 @@ class TraderTui(App[None]):
         self._rendered_log_lines = 0
         self._focused_panel: str | None = None
         self._startup_task: asyncio.Task[None] | None = None
+        self._previous_last_prices: dict[str, Decimal] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the Textual layout."""
@@ -285,6 +287,7 @@ class TraderTui(App[None]):
 
         status = self._runtime.snapshot_status()
         self._render_cards(status)
+        self._update_header(status)
 
         watchlist = self.query_one("#watchlist-table", DataTable)
         watchlist.clear(columns=False)
@@ -346,11 +349,11 @@ class TraderTui(App[None]):
             )
         )
 
-        market_label = "[bold green]Market Open[/bold green]" if status.market_open else "[bold yellow]Market Closed[/bold yellow]"
+        market_label = self._market_phase_markup(self._runtime.market_phase())
         session = self.query_one("#session-card", Static)
         session.update(
             self._card_markup(
-                title="Session",
+                title="Market Status",
                 primary=market_label,
                 secondary=f"Mode {'Paper' if self._runtime.settings.ib_paper else 'Live'}",
             )
@@ -359,9 +362,9 @@ class TraderTui(App[None]):
         account = self.query_one("#account-card", Static)
         account.update(
             self._card_markup(
-                title="Account",
+                title="Balance",
                 primary=f"[bold]{self._fmt_decimal(status.equity)}[/bold]",
-                secondary=f"Realized PnL {self._fmt_decimal(status.realized_pnl)}",
+                secondary=f"P&L {self._signed_money_markup(status.realized_pnl)}",
             )
         )
 
@@ -402,16 +405,73 @@ class TraderTui(App[None]):
 
         return f"{float(value):,.{places}f}"
 
+    def _signed_money_text(self, value: Decimal) -> str:
+        """Return signed PnL text for non-markup surfaces."""
+
+        if value > 0:
+            return f"+{self._fmt_decimal(value)}"
+        if value < 0:
+            return f"-{self._fmt_decimal(abs(value))}"
+        return self._fmt_decimal(value)
+
+    def _signed_money_markup(self, value: Decimal) -> str:
+        """Return signed PnL markup for dashboard cards."""
+
+        if value > 0:
+            return f"[bold green]+{self._fmt_decimal(value)}[/bold green]"
+        if value < 0:
+            return f"[bold red]-{self._fmt_decimal(abs(value))}[/bold red]"
+        return self._fmt_decimal(value)
+
+    def _market_phase_markup(self, phase: str) -> str:
+        """Return colored markup for the current market phase."""
+
+        if phase == "open":
+            return "[bold green]Open[/bold green]"
+        if phase == "pre-market":
+            return "[bold yellow]Pre-Market[/bold yellow]"
+        return "[bold red]Closed[/bold red]"
+
+    def _update_header(self, status) -> None:
+        """Push live balance and market state into the header bar."""
+
+        phase_text = self._runtime.market_phase_text()
+        pnl_text = self._signed_money_text(status.realized_pnl)
+        self.title = f"Balance {self._fmt_decimal(status.equity)} | Market Status {phase_text} | P&L {pnl_text}"
+        self.sub_title = f"Broker {'Connected' if status.connected else 'Disconnected'}"
+
+    def _price_direction(self, symbol: str, last_price: Decimal) -> int:
+        """Return whether the last price moved up, down, or stayed flat."""
+
+        previous = self._previous_last_prices.get(symbol)
+        self._previous_last_prices[symbol] = last_price
+        if previous is None:
+            return 0
+        if last_price > previous:
+            return 1
+        if last_price < previous:
+            return -1
+        return 0
+
+    def _market_text(self, value: str, direction: int) -> Text:
+        """Return a colored table cell for market direction."""
+
+        if direction > 0:
+            return Text(value, style="bold green")
+        if direction < 0:
+            return Text(value, style="bold red")
+        return Text(value)
+
     def _quote_age_label(self, updated_at: datetime) -> str:
         """Return a short age label for quote freshness."""
 
         age_seconds = max(0, int((datetime.now(tz=UTC) - updated_at).total_seconds()))
         return f"{age_seconds}s"
 
-    def _market_rows(self) -> list[tuple[str, str, str, str, str, str, str, str]]:
+    def _market_rows(self) -> list[tuple[object, object, object, object, str, str, str, str]]:
         """Build market table rows from subscribed symbols and live quote state."""
 
-        rows: list[tuple[str, str, str, str, str, str, str, str]] = []
+        rows: list[tuple[object, object, object, object, str, str, str, str]] = []
         quotes = {quote.symbol: quote for quote in self._runtime.snapshot_quotes()}
         for symbol in self._runtime.snapshot_status().market_data_symbols:
             quote = quotes.get(symbol)
@@ -419,12 +479,13 @@ class TraderTui(App[None]):
             if quote is None:
                 rows.append((symbol, "--", "--", "--", "--", "--", self._fmt_decimal(vwap), "awaiting"))
                 continue
+            direction = self._price_direction(symbol, quote.last)
             rows.append(
                 (
-                    symbol,
-                    self._fmt_decimal(quote.last),
-                    self._fmt_decimal(quote.bid),
-                    self._fmt_decimal(quote.ask),
+                    self._market_text(symbol, direction),
+                    self._market_text(self._fmt_decimal(quote.last), direction),
+                    self._market_text(self._fmt_decimal(quote.bid), direction),
+                    self._market_text(self._fmt_decimal(quote.ask), direction),
                     self._fmt_decimal(quote.spread()),
                     self._fmt_decimal(quote.volume, places=0),
                     self._fmt_decimal(vwap),
