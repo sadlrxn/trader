@@ -54,6 +54,7 @@ class TradingRuntime:
         self.state_store = StateStore(settings.trader_state_db)
         self.status = self.state_store.load_status()
         self.status.positions = self.state_store.load_positions()
+        self._broker_positions: dict[str, Decimal] = {}
         self.broker = IBBrokerAdapter(settings)
         self.execution = ExecutionService(
             broker=self.broker,
@@ -66,7 +67,6 @@ class TradingRuntime:
         self.bars: dict[str, list[Bar]] = defaultdict(list)
         self.quotes = {}
         self._scanner_batch: list[str] = []
-        self._broker_positions: dict[str, Decimal] = {}
         self._tasks: list[asyncio.Task[None]] = []
         self._stop_event = asyncio.Event()
         self._started = False
