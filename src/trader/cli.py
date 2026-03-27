@@ -21,10 +21,6 @@ def build_parser() -> argparse.ArgumentParser:
     bot_parser = subparsers.add_parser("bot", help="Run the trading bot.")
     bot_parser.add_argument("--no-tui", action="store_true", help="Run without the Textual UI.")
 
-    serve_parser = subparsers.add_parser("serve", help="Run the TUI as a web app via textual serve.")
-    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address.")
-    serve_parser.add_argument("--port", type=int, default=7681, help="Port.")
-
     subparsers.add_parser("check", help="Validate configuration and print runtime summary.")
     return parser
 
@@ -40,13 +36,6 @@ def main() -> None:
     if command == "check":
         configure_logging(settings.trader_log_level, sink=log_sink)
         _run_check(settings)
-        return
-
-    if command == "serve":
-        configure_logging(settings.trader_log_level, sink=log_sink, console=True)
-        from textual_serve.server import Server
-        server = Server("trader.cli:_make_app", host=args.host, port=args.port)
-        server.serve()
         return
 
     use_tui = not getattr(args, "no_tui", False) and settings.trader_enable_tui
@@ -70,15 +59,6 @@ async def run_headless(runtime: TradingRuntime) -> None:
             await asyncio.sleep(1)
     finally:
         await runtime.stop()
-
-
-def _make_app() -> TraderTui:
-    """Factory for textual serve — creates a fresh TUI app instance."""
-    settings = Settings()
-    log_sink: deque[str] = deque(maxlen=500)
-    configure_logging(settings.trader_log_level, sink=log_sink)
-    runtime = TradingRuntime(settings=settings, log_sink=log_sink)
-    return TraderTui(runtime=runtime)
 
 
 def _run_check(settings: Settings) -> None:
