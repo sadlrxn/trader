@@ -150,7 +150,7 @@ class TradingRuntime:
         status.vix_value = Decimal(str(self.broker.last_vix)) if getattr(self.broker, "last_vix", 0) else None
         status.session_nlv_high = self._session_nlv_high
         status.open_position_count = len(self.execution.positions)
-        status.max_positions = self.settings.trader_max_open
+        status.max_positions = self.settings.trader_max_open_positions
         # Compute drawdown
         if self._session_nlv_high > 0:
             status.drawdown_pct = (self._session_nlv_high - status.equity) / self._session_nlv_high * 100
