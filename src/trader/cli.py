@@ -24,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("grpc", help="Run the trading bot headless with gRPC enabled.")
     subparsers.add_parser("rpc", help="Deprecated alias for the gRPC headless mode.")
+    serve_parser = subparsers.add_parser("serve", help="Run the TUI as a web app via textual serve.")
+    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address.")
+    serve_parser.add_argument("--port", type=int, default=7681, help="Port.")
+
     subparsers.add_parser("check", help="Validate configuration and print runtime summary.")
     return parser
 
@@ -39,6 +43,13 @@ def main() -> None:
     if command == "check":
         configure_logging(settings.trader_log_level, sink=log_sink)
         _run_check(settings)
+        return
+
+    if command == "serve":
+        configure_logging(settings.trader_log_level, sink=log_sink, console=True)
+        from textual_serve.server import Server
+        server = Server("trader.cli:_make_app", host=args.host, port=args.port)
+        server.serve()
         return
 
     enable_rpc = command in {"grpc", "rpc"}
@@ -68,6 +79,15 @@ async def run_headless(runtime: TradingRuntime, rpc_server: RpcServer | None, en
         if rpc_server is not None:
             await rpc_server.stop()
         await runtime.stop()
+
+
+def _make_app() -> TraderTui:
+    """Factory for textual serve — creates a fresh TUI app instance."""
+    settings = Settings()
+    log_sink: deque[str] = deque(maxlen=500)
+    configure_logging(settings.trader_log_level, sink=log_sink)
+    runtime = TradingRuntime(settings=settings, log_sink=log_sink)
+    return TraderTui(runtime=runtime)
 
 
 def _run_check(settings: Settings) -> None:

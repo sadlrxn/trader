@@ -16,6 +16,7 @@ dependencies = [
     "pydantic>=2.11.0",
     "pydantic-settings>=2.8.0",
     "textual>=3.7.0",
+    "textual-serve>=1.1.0",
 ]
 
 [project.optional-dependencies]
