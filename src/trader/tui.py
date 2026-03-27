@@ -1,34 +1,34 @@
 """Textual terminal UI for the trading bot."""
-
 from __future__ import annotations
-
-import asyncio
-import logging
+import asyncio, logging
 from contextlib import suppress
 from datetime import UTC, datetime
 from decimal import Decimal
-
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, RichLog, Static
-
 from trader.runtime import TradingRuntime
 
 logger = logging.getLogger(__name__)
 
+def _c(val, label: str) -> Text:
+    """Color text green/red by sign."""
+    f = float(val)
+    return Text(label, style="bold green" if f > 0 else "bold red" if f < 0 else "")
+
+def _fmt(v, p: int = 2) -> str:
+    return f"{float(v):,.{p}f}"
+
 
 class TraderTui(App[None]):
-    """Trading bot terminal dashboard."""
-
     CSS = """
     Screen { background: #0a0a12; color: #d0d8e4; }
     #status-bar { height: 3; }
     .status-card { width: 1fr; height: 3; padding: 0 1; background: #0f1620; border: round #1e3a5f; }
     #workspace { height: 1fr; }
-    #left-panel { width: 1fr; }
-    #right-panel { width: 1fr; }
+    #left-panel, #right-panel { width: 1fr; }
     DataTable { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     DataTable > .datatable--header { background: #141c28; text-style: bold; color: #5b9bd5; }
     DataTable > .datatable--even-row { background: #0c1018; }
@@ -38,32 +38,26 @@ class TraderTui(App[None]):
     RichLog { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     Footer { background: #141c28; }
     """
-
     BINDINGS = [
-        Binding("q", "quit_bot", "Quit"),
-        Binding("p", "pause_trading", "Pause"),
-        Binding("r", "resume_trading", "Resume"),
-        Binding("l", "toggle_logs_focus", "Logs"),
-        Binding("m", "toggle_market_focus", "Market"),
-        Binding("s", "toggle_positions_focus", "Positions"),
-        Binding("o", "toggle_orders_focus", "Orders"),
-        Binding("escape", "clear_focus", "Clear"),
+        Binding("q", "quit_bot", "Quit"), Binding("p", "pause_trading", "Pause"),
+        Binding("r", "resume_trading", "Resume"), Binding("l", "focus('logs')", "Logs"),
+        Binding("m", "focus('market')", "Market"), Binding("s", "focus('positions')", "Positions"),
+        Binding("o", "focus('orders')", "Orders"), Binding("escape", "focus('')", "Clear"),
     ]
 
     def __init__(self, runtime: TradingRuntime) -> None:
         super().__init__()
-        self._runtime = runtime
-        self._rendered_log_lines = 0
-        self._focused_panel: str | None = None
-        self._startup_task: asyncio.Task[None] | None = None
-        self._prev_prices: dict[str, Decimal] = {}
+        self._rt = runtime
+        self._log_count = 0
+        self._focus: str = ""
+        self._prev: dict[str, Decimal] = {}
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="status-bar"):
-            yield Static(id="broker-card", classes="status-card")
-            yield Static(id="market-card", classes="status-card")
-            yield Static(id="account-card", classes="status-card")
-            yield Static(id="risk-card", classes="status-card")
+            yield Static(id="c-broker", classes="status-card")
+            yield Static(id="c-market", classes="status-card")
+            yield Static(id="c-account", classes="status-card")
+            yield Static(id="c-risk", classes="status-card")
         with Horizontal(id="workspace"):
             with Vertical(id="left-panel"):
                 yield DataTable(id="market-table")
@@ -74,260 +68,111 @@ class TraderTui(App[None]):
         yield Footer()
 
     async def on_mount(self) -> None:
-        mkt = self.query_one("#market-table", DataTable)
-        mkt.add_columns("Symbol", "Last", "Chg%", "Vol", "Spread", "Gap%", "RSI", "ATR%", "EMA", "Pattern", "Signal")
-        mkt.cursor_type = "row"
-        mkt.zebra_stripes = True
-        mkt.border_title = "Market"
-
-        pos = self.query_one("#positions-table", DataTable)
-        pos.add_columns("Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held")
-        pos.cursor_type = "row"
-        pos.zebra_stripes = True
-        pos.border_title = "Positions"
-
-        orders = self.query_one("#orders-table", DataTable)
-        orders.add_columns("ID", "Symbol", "Type", "Side", "Qty", "Status", "Price")
-        orders.cursor_type = "row"
-        orders.zebra_stripes = True
-        orders.border_title = "Orders"
-
+        for tid, cols, title in [
+            ("market-table", ["Symbol", "Last", "Chg%", "Vol", "Spread", "Gap%", "RSI", "ATR%", "EMA", "Pattern", "Signal"], "Market"),
+            ("positions-table", ["Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held"], "Positions"),
+            ("orders-table", ["ID", "Symbol", "Type", "Side", "Qty", "Status", "Price"], "Orders"),
+        ]:
+            t = self.query_one(f"#{tid}", DataTable)
+            t.add_columns(*cols); t.cursor_type = "row"; t.zebra_stripes = True; t.border_title = title
         self.query_one("#logs-panel", RichLog).border_title = "Logs"
-
         self.set_interval(1, self._refresh)
-        self._startup_task = asyncio.create_task(self._start_runtime())
+        asyncio.create_task(self._start())
 
     async def on_unmount(self) -> None:
-        if self._startup_task:
-            self._startup_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._startup_task
-        await self._runtime.stop()
+        await self._rt.stop()
 
-    async def _start_runtime(self) -> None:
-        try:
-            await self._runtime.start()
-        except Exception as e:
-            logger.exception("Runtime start failed: %s", e)
-
-    # ── Actions ──
+    async def _start(self) -> None:
+        try: await self._rt.start()
+        except Exception as e: logger.exception("Runtime failed: %s", e)
 
     async def action_quit_bot(self) -> None: self.exit()
-    async def action_pause_trading(self) -> None: self._runtime.pause_trading()
-    async def action_resume_trading(self) -> None: self._runtime.resume_trading()
-    async def action_toggle_logs_focus(self) -> None: self._toggle_focus("logs")
-    async def action_toggle_market_focus(self) -> None: self._toggle_focus("market")
-    async def action_toggle_positions_focus(self) -> None: self._toggle_focus("positions")
-    async def action_toggle_orders_focus(self) -> None: self._toggle_focus("orders")
-    async def action_clear_focus(self) -> None: self._toggle_focus(None)
+    async def action_pause_trading(self) -> None: self._rt.pause_trading()
+    async def action_resume_trading(self) -> None: self._rt.resume_trading()
 
-    # ── Refresh ──
+    def action_focus(self, panel: str) -> None:
+        self._focus = "" if self._focus == panel else panel
+        widgets = {
+            "status": self.query_one("#status-bar"),
+            "left": self.query_one("#left-panel"), "right": self.query_one("#right-panel"),
+            "market": self.query_one("#market-table"), "positions": self.query_one("#positions-table"),
+            "orders": self.query_one("#orders-table"),
+        }
+        for w in widgets.values(): w.display = True
+        if not self._focus: return
+        widgets["status"].display = False
+        hide = {
+            "logs": ["left"],
+            "market": ["right", "positions", "orders"],
+            "positions": ["right", "market", "orders"],
+            "orders": ["right", "market", "positions"],
+        }
+        for k in hide.get(self._focus, []): widgets[k].display = False
 
     def _refresh(self) -> None:
-        status = self._runtime.snapshot_status()
-        self._refresh_cards(status)
-        self._refresh_header(status)
-        self._refresh_market(status)
-        self._refresh_positions(status)
-        self._refresh_orders(status)
-        self._refresh_logs()
-
-    def _refresh_cards(self, s) -> None:
-        # Broker
+        s = self._rt.snapshot_status()
+        # Cards
         conn = "[bold green]CONNECTED[/]" if s.connected else "[bold red]DISCONNECTED[/]"
-        self.query_one("#broker-card", Static).update(Text.from_markup(
-            f"[bold #5b9bd5]BROKER[/]  {conn}"))
-
-        # Market
-        phase = {"open": "[bold green]OPEN[/]", "pre-market": "[bold yellow]PRE-MKT[/]"}.get(
-            self._runtime.market_phase(), "[bold red]CLOSED[/]")
-        mode = "[bold red]LIVE[/]" if not self._runtime.settings.ib_paper else "PAPER"
-        self.query_one("#market-card", Static).update(Text.from_markup(
-            f"[bold #5b9bd5]MARKET[/]  {phase}  {mode}"))
-
-        # Account
-        eq = self._fmt(s.equity)
-        pnl = self._money(s.realized_pnl)
-        dd = f"{float(s.drawdown_pct):.1f}%"
-        self.query_one("#account-card", Static).update(Text.from_markup(
-            f"[bold #5b9bd5]NLV[/] [bold]${eq}[/]  P&L {pnl}  DD {dd}"))
-
-        # Risk
-        vr = s.vix_regime
-        vc = {"greed": "green", "euphoria": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(vr, "dim")
-        vix = f"VIX {float(s.vix_value or 0):.1f} [{vc}]{vr.upper()}[/]"
+        self.query_one("#c-broker", Static).update(Text.from_markup(f"[bold #5b9bd5]BROKER[/]  {conn}"))
+        phase = {"open": "[bold green]OPEN[/]", "pre-market": "[bold yellow]PRE-MKT[/]"}.get(self._rt.market_phase(), "[bold red]CLOSED[/]")
+        mode = "[bold red]LIVE[/]" if not self._rt.settings.ib_paper else "PAPER"
+        self.query_one("#c-market", Static).update(Text.from_markup(f"[bold #5b9bd5]MARKET[/]  {phase}  {mode}"))
+        pnl_mk = f"[bold green]+${_fmt(s.realized_pnl)}[/]" if s.realized_pnl > 0 else f"[bold red]-${_fmt(abs(s.realized_pnl))}[/]" if s.realized_pnl < 0 else f"${_fmt(s.realized_pnl)}"
+        self.query_one("#c-account", Static).update(Text.from_markup(f"[bold #5b9bd5]NLV[/] [bold]${_fmt(s.equity)}[/]  P&L {pnl_mk}  DD {float(s.drawdown_pct):.1f}%"))
+        vc = {"greed": "green", "euphoria": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(s.vix_regime, "dim")
         paused = "  [bold red]PAUSED[/]" if not s.trading_enabled else ""
-        self.query_one("#risk-card", Static).update(Text.from_markup(
-            f"[bold #5b9bd5]RISK[/]  {vix}  {s.open_position_count}/{s.max_positions} pos{paused}"))
-
-    def _refresh_header(self, s) -> None:
-        pnl = f"+{float(s.realized_pnl):.0f}" if s.realized_pnl >= 0 else f"{float(s.realized_pnl):.0f}"
-        self.title = f"${self._fmt(s.equity)} | {self._runtime.market_phase_text()} | P&L {pnl}"
+        self.query_one("#c-risk", Static).update(Text.from_markup(f"[bold #5b9bd5]RISK[/]  VIX {float(s.vix_value or 0):.1f} [{vc}]{s.vix_regime.upper()}[/]  {s.open_position_count}/{s.max_positions} pos{paused}"))
+        # Header
+        pnl_h = f"+{float(s.realized_pnl):.0f}" if s.realized_pnl >= 0 else f"{float(s.realized_pnl):.0f}"
+        self.title = f"${_fmt(s.equity)} | {self._rt.market_phase_text()} | P&L {pnl_h}"
         self.sub_title = f"{'Connected' if s.connected else 'Disconnected'} | {s.vix_regime.upper()}"
-
-    def _refresh_market(self, status) -> None:
-        table = self.query_one("#market-table", DataTable)
-        table.clear(columns=False)
-        quotes = {q.symbol: q for q in self._runtime.snapshot_quotes()}
-        bars_map = self._runtime.bars
-
-        for symbol in status.market_data_symbols:
-            quote = quotes.get(symbol)
-            ind = self._runtime.get_indicators(symbol)
-            bars = bars_map.get(symbol, [])
-
-            if not quote:
-                table.add_row(symbol, *["--"] * 10)
-                continue
-
-            d = self._dir(symbol, quote.last)
-            last = self._ctext(self._fmt(quote.last), d)
-
-            # Change %
-            chg = "--"
-            if bars and bars[0].open > 0:
-                chg = self._cpct(float((quote.last - bars[0].open) / bars[0].open * 100))
-
-            vol = self._fmt(quote.volume, 0)
-            spread = self._fmt(quote.spread())
-
-            # Gap %
-            gap = "--"
-            if len(bars) >= 2 and bars[-2].close > 0:
-                gap = self._cpct(float((bars[-1].open - bars[-2].close) / bars[-2].close * 100))
-
-            # RSI
+        # Market
+        mt = self.query_one("#market-table", DataTable); mt.clear(columns=False)
+        quotes = {q.symbol: q for q in self._rt.snapshot_quotes()}
+        bars_map = self._rt.bars
+        for sym in s.market_data_symbols:
+            q = quotes.get(sym)
+            if not q: mt.add_row(sym, *["--"] * 10); continue
+            ind = self._rt.get_indicators(sym); bars = bars_map.get(sym, [])
+            d = self._dir(sym, q.last)
+            chg = self._pct(float((q.last - bars[0].open) / bars[0].open * 100)) if bars and bars[0].open > 0 else "--"
+            gap = self._pct(float((bars[-1].open - bars[-2].close) / bars[-2].close * 100)) if len(bars) >= 2 and bars[-2].close > 0 else "--"
             rsi = ind.get("rsi")
-            rsi_t = "--"
-            if rsi is not None:
-                style = "bold red" if rsi > 70 else "bold green" if rsi < 30 else ""
-                rsi_t = Text(f"{rsi:.0f}", style=style) if style else f"{rsi:.0f}"
-
-            # ATR %
-            atr = ind.get("atr_pct")
-            atr_t = f"{atr:.1f}" if atr is not None else "--"
-
-            # EMA cross
-            ema = ind.get("ema_crossover", "none")
+            rsi_t = Text(f"{rsi:.0f}", style="bold red" if rsi > 70 else "bold green" if rsi < 30 else "") if rsi is not None else "--"
+            atr = ind.get("atr_pct"); ema = ind.get("ema_crossover", "none")
             ema_t = Text("▲", style="bold green") if ema == "bullish" else Text("▼", style="bold red") if ema == "bearish" else "--"
-
-            # Pattern + Signal
-            pat, sig = "--", "--"
-            for p in status.positions:
-                if p.symbol == symbol:
-                    pat = p.signal_type.value.split("_")[0].upper()[:6]
-                    sig = Text("LONG", style="bold green")
-                    break
-            if symbol in status.watchlist and sig == "--":
-                sig = Text("WATCH", style="dim cyan")
-
-            table.add_row(self._ctext(symbol, d), last, chg, vol, spread, gap, rsi_t, atr_t, ema_t, pat, sig)
-
-    def _refresh_positions(self, status) -> None:
-        table = self.query_one("#positions-table", DataTable)
-        table.clear(columns=False)
-        quotes = {q.symbol: q for q in self._runtime.snapshot_quotes()}
-
-        for pos in status.positions:
-            q = quotes.get(pos.symbol)
-            cur = q.last if q else pos.entry_price
-            pnl_d = (cur - pos.entry_price) * pos.remaining_quantity
-            pnl_p = ((cur - pos.entry_price) / pos.entry_price * 100) if pos.entry_price else Decimal("0")
-            risk = pos.entry_price - pos.stop_price
-            r_mult = float((cur - pos.entry_price) / risk) if risk else 0.0
-            held = max(0, int((datetime.now(tz=UTC) - pos.opened_at).total_seconds())) // 60
-
-            table.add_row(
-                pos.symbol,
-                str(pos.remaining_quantity),
-                self._fmt(pos.entry_price),
-                self._cpnl(cur - pos.entry_price, self._fmt(cur)),
-                self._cpnl(pnl_d, self._fmt(pnl_d)),
-                self._cpnl(pnl_p, f"{float(pnl_p):.1f}%"),
-                f"{r_mult:+.1f}R",
-                self._fmt(pos.stop_price),
-                self._fmt(pos.target_price),
-                f"{held}m",
-            )
-
-    def _refresh_orders(self, status) -> None:
-        table = self.query_one("#orders-table", DataTable)
-        table.clear(columns=False)
-        active = [o for o in status.orders if o.status not in ("Inactive", "Cancelled", "Filled")]
-        for o in active[-15:]:
+            pat, sig = "--", Text("WATCH", style="dim cyan") if sym in s.watchlist else "--"
+            for p in s.positions:
+                if p.symbol == sym: pat = p.signal_type.value.split("_")[0].upper()[:6]; sig = Text("LONG", style="bold green"); break
+            mt.add_row(self._ct(sym, d), self._ct(_fmt(q.last), d), chg, _fmt(q.volume, 0), _fmt(q.spread()), gap, rsi_t, f"{atr:.1f}" if atr else "--", ema_t, pat, sig)
+        # Positions
+        pt = self.query_one("#positions-table", DataTable); pt.clear(columns=False)
+        for p in s.positions:
+            q = quotes.get(p.symbol); cur = q.last if q else p.entry_price
+            pnl_d = (cur - p.entry_price) * p.remaining_quantity
+            pnl_p = ((cur - p.entry_price) / p.entry_price * 100) if p.entry_price else Decimal(0)
+            risk = p.entry_price - p.stop_price; rm = float((cur - p.entry_price) / risk) if risk else 0.0
+            held = max(0, int((datetime.now(tz=UTC) - p.opened_at).total_seconds())) // 60
+            pt.add_row(p.symbol, str(p.remaining_quantity), _fmt(p.entry_price), _c(cur - p.entry_price, _fmt(cur)),
+                       _c(pnl_d, _fmt(pnl_d)), _c(pnl_p, f"{float(pnl_p):.1f}%"), f"{rm:+.1f}R", _fmt(p.stop_price), _fmt(p.target_price), f"{held}m")
+        # Orders
+        ot = self.query_one("#orders-table", DataTable); ot.clear(columns=False)
+        for o in [x for x in s.orders if x.status not in ("Inactive", "Cancelled", "Filled")][-15:]:
             px = o.limit_price if o.limit_price is not None else o.stop_price
-            status_style = "green" if o.status == "Submitted" else "yellow" if o.status == "PreSubmitted" else ""
-            status_text = Text(o.status, style=status_style) if status_style else o.status
-            table.add_row(str(o.order_id), o.symbol, o.purpose.value, o.side,
-                          str(o.quantity), status_text, self._fmt(px or 0))
-
-    def _refresh_logs(self) -> None:
-        widget = self.query_one("#logs-panel", RichLog)
-        logs = self._runtime.snapshot_logs()
-        if self._rendered_log_lines > len(logs):
-            self._rendered_log_lines = 0
-            widget.clear()
-        for line in logs[self._rendered_log_lines:]:
-            widget.write(line)
-        self._rendered_log_lines = len(logs)
-
-    # ── Focus ──
-
-    def _toggle_focus(self, panel: str | None) -> None:
-        self._focused_panel = None if self._focused_panel == panel else panel
-        left = self.query_one("#left-panel")
-        right = self.query_one("#right-panel")
-        status = self.query_one("#status-bar")
-        mkt = self.query_one("#market-table")
-        pos = self.query_one("#positions-table")
-        orders = self.query_one("#orders-table")
-
-        # Reset all visible
-        for w in (left, right, status, mkt, pos, orders):
-            w.display = True
-
-        fp = self._focused_panel
-        if not fp:
-            return
-        status.display = False
-        if fp == "logs":
-            left.display = False
-        elif fp == "market":
-            right.display = False; pos.display = False; orders.display = False
-        elif fp == "positions":
-            right.display = False; mkt.display = False; orders.display = False
-        elif fp == "orders":
-            right.display = False; mkt.display = False; pos.display = False
-
-    # ── Helpers ──
-
-    def _fmt(self, v, places: int = 2) -> str:
-        return f"{float(v):,.{places}f}"
-
-    def _money(self, v: Decimal) -> str:
-        if v > 0: return f"[bold green]+${self._fmt(v)}[/]"
-        if v < 0: return f"[bold red]-${self._fmt(abs(v))}[/]"
-        return f"${self._fmt(v)}"
+            st = Text(o.status, style="green" if o.status == "Submitted" else "yellow" if o.status == "PreSubmitted" else "")
+            ot.add_row(str(o.order_id), o.symbol, o.purpose.value, o.side, str(o.quantity), st, _fmt(px or 0))
+        # Logs
+        lw = self.query_one("#logs-panel", RichLog); logs = self._rt.snapshot_logs()
+        if self._log_count > len(logs): self._log_count = 0; lw.clear()
+        for line in logs[self._log_count:]: lw.write(line)
+        self._log_count = len(logs)
 
     def _dir(self, sym: str, price: Decimal) -> int:
-        prev = self._prev_prices.get(sym)
-        self._prev_prices[sym] = price
-        if prev is None: return 0
-        return 1 if price > prev else -1 if price < prev else 0
+        prev = self._prev.get(sym); self._prev[sym] = price
+        return 0 if prev is None else 1 if price > prev else -1 if price < prev else 0
 
-    def _ctext(self, val: str, d: int) -> Text:
-        if d > 0: return Text(val, style="bold green")
-        if d < 0: return Text(val, style="bold red")
-        return Text(val)
+    def _ct(self, v: str, d: int) -> Text:
+        return Text(v, style="bold green" if d > 0 else "bold red" if d < 0 else "")
 
-    def _cpnl(self, v, label: str) -> Text:
-        f = float(v)
-        if f > 0: return Text(label, style="bold green")
-        if f < 0: return Text(label, style="bold red")
-        return Text(label)
-
-    def _cpct(self, pct: float) -> Text:
-        s = f"{pct:+.1f}%"
-        if pct > 0: return Text(s, style="green")
-        if pct < 0: return Text(s, style="red")
-        return Text(s)
+    def _pct(self, p: float) -> Text:
+        return Text(f"{p:+.1f}%", style="green" if p > 0 else "red" if p < 0 else "")
