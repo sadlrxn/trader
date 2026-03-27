@@ -10,9 +10,12 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pandas as pd
+
 from trader.broker.ibkr import IBBrokerAdapter
 from trader.config import Settings
 from trader.execution import ExecutionService
+from trader.indicators import compute_indicators
 from trader.market import MarketClock
 from trader.models import Bar, BrokerEvent, BrokerEventKind, Quote, RuntimeStatus
 from trader.risk import RiskManager
@@ -20,6 +23,18 @@ from trader.state import StateStore
 from trader.strategy import StrategyEngine
 
 logger = logging.getLogger(__name__)
+
+
+def classify_vix_regime(vix: float) -> str:
+    """Classify market regime from VIX level."""
+
+    if vix >= 35:
+        return "panic"
+    if vix >= 25:
+        return "fear"
+    if vix < 15:
+        return "greed"
+    return "neutral"
 
 
 class TradingRuntime:
@@ -51,6 +66,9 @@ class TradingRuntime:
         self._stop_event = asyncio.Event()
         self._started = False
         self._last_signal_timestamp: dict[str, datetime] = {}
+        self._vix_regime: str = "neutral"
+        self._session_nlv_high: Decimal = Decimal("0")
+        self._indicators: dict[str, dict] = {}
 
     async def start(self, start_rpc: bool = True) -> None:
         """Start the broker connection and background workers."""
@@ -64,6 +82,8 @@ class TradingRuntime:
             await self._load_daily_watchlist()
             await self._subscribe_fallback_symbols()
             await self.broker.refresh_scanner()
+            if self.settings.trader_enable_vix_gate:
+                await self.broker.subscribe_vix()
         except (ConnectionError, TimeoutError, OSError, RuntimeError) as error:
             await self.broker.disconnect()
             self.status.connected = False
@@ -76,6 +96,7 @@ class TradingRuntime:
             asyncio.create_task(self._consume_broker_events(), name="broker-events"),
             asyncio.create_task(self._refresh_market_status(), name="market-status"),
             asyncio.create_task(self._refresh_scanner_loop(), name="scanner-loop"),
+            asyncio.create_task(self._periodic_maintenance(), name="maintenance"),
         ]
         logger.info(self.market_phase_text())
 
@@ -179,6 +200,7 @@ class TradingRuntime:
             return
         if event.kind is BrokerEventKind.ACCOUNT and event.account_tag == "NetLiquidation":
             self.status.equity = Decimal(event.account_value or "0")
+            self._check_drawdown(self.status.equity)
             return
         if event.kind is BrokerEventKind.POSITION:
             if event.position_quantity:
@@ -204,15 +226,23 @@ class TradingRuntime:
                 logger.error(self.status.last_error)
             return
         if event.kind is BrokerEventKind.QUOTE and event.quote is not None:
+            if event.symbol == "VIX" and self.settings.trader_enable_vix_gate:
+                vix_val = float(event.quote.last)
+                if vix_val > 0:
+                    self.broker.last_vix = vix_val
+                    self._vix_regime = classify_vix_regime(vix_val)
+                return
             self.quotes[event.symbol] = event.quote
             await self.execution.manage_open_position(event.symbol, event.quote, self.bars[event.symbol])
             await self._evaluate_signal(event.symbol)
             return
         if event.kind is BrokerEventKind.BAR and event.bar is not None:
             self._upsert_bar(event.bar)
+            self._update_indicators(event.symbol)
             quote = self.quotes.get(event.symbol)
             if quote is not None:
                 await self.execution.manage_open_position(event.symbol, quote, self.bars[event.symbol])
+                await self._check_trailing_stop(event.symbol, quote)
             await self._evaluate_signal(event.symbol)
             return
         if event.kind is BrokerEventKind.ORDER and event.order is not None:
@@ -290,6 +320,9 @@ class TradingRuntime:
 
         if not self.status.market_open:
             return
+        if self.settings.trader_enable_vix_gate and self._vix_regime in ("panic", "fear"):
+            logger.info("VIX regime %s -- blocking new entries", self._vix_regime)
+            return
         bars = self.bars.get(symbol, [])
         quote = self.quotes.get(symbol)
         signal = self.strategy.evaluate(symbol=symbol, bars=bars, quote=quote)
@@ -310,6 +343,66 @@ class TradingRuntime:
             return
         self._last_signal_timestamp[symbol] = signal.timestamp
         await self.execution.enter_signal(signal=signal, quantity=decision.quantity)
+
+    def _check_drawdown(self, equity: Decimal) -> None:
+        """Pause trading when session drawdown exceeds the configured limit."""
+
+        if equity > self._session_nlv_high:
+            self._session_nlv_high = equity
+        if self._session_nlv_high > 0:
+            drawdown = (self._session_nlv_high - equity) / self._session_nlv_high
+            if drawdown >= self.settings.trader_max_drawdown:
+                self.pause_trading()
+                logger.error("DRAWDOWN LIMIT: %.1f%% from session high", float(drawdown * 100))
+
+    def _update_indicators(self, symbol: str) -> None:
+        """Recompute technical indicators for a symbol after a bar update."""
+
+        bars = self.bars.get(symbol, [])
+        if len(bars) < 2:
+            return
+        df = pd.DataFrame(
+            [
+                {
+                    "open": float(b.open),
+                    "high": float(b.high),
+                    "low": float(b.low),
+                    "close": float(b.close),
+                    "volume": float(b.volume),
+                }
+                for b in bars
+            ]
+        )
+        try:
+            self._indicators[symbol] = compute_indicators(df)
+        except Exception:
+            logger.debug("Indicator computation failed for %s", symbol, exc_info=True)
+
+    async def _check_trailing_stop(self, symbol: str, quote: Quote) -> None:
+        """Convert stop to trailing when price rises far enough above entry after target fill."""
+
+        position = self.execution.positions.get(symbol)
+        if position is None or not position.target_filled:
+            return
+        indicators = self._indicators.get(symbol, {})
+        atr_val = indicators.get("atr")
+        if atr_val is None or atr_val <= 0:
+            return
+        threshold = float(position.entry_price) + atr_val * float(self.settings.trader_trailing_stop_atr_multiple)
+        if float(quote.last) >= threshold:
+            await self.execution.convert_to_trailing_stop(symbol, trail_amount=atr_val)
+
+    async def _periodic_maintenance(self) -> None:
+        """Run periodic housekeeping: stale order cancellation."""
+
+        while not self._stop_event.is_set():
+            await asyncio.sleep(30)
+            try:
+                await self.execution.cancel_stale_entries(
+                    timeout_seconds=self.settings.trader_stale_order_timeout,
+                )
+            except Exception:
+                logger.debug("Maintenance cycle error", exc_info=True)
 
     def _reconcile_broker_positions(self) -> None:
         """Pause trading when local state and broker positions disagree."""

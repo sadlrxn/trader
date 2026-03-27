@@ -35,6 +35,8 @@ class ExecutionService:
             order.order_id: order for order in self._state_store.load_orders()
         }
         self._pending_signals: dict[str, SignalDecision] = {}
+        self._order_placed_at: dict[int, datetime] = {}
+        self._trailing_converted: set[str] = set()
 
     async def enter_signal(self, signal: SignalDecision, quantity: int) -> None:
         """Submit the entry order for a new signal."""
@@ -60,6 +62,7 @@ class ExecutionService:
             )
         )
         self._pending_signals[signal.symbol] = signal
+        self._order_placed_at[order.order_id] = datetime.now(tz=UTC)
         logger.info("Submitted %s entry for %s x%d at %s", signal.signal_type, signal.symbol, quantity, signal.entry_price)
 
     async def handle_order_update(self, order: OrderRecord) -> Decimal:
@@ -205,6 +208,14 @@ class ExecutionService:
                 note=position.signal_type.value,
             )
         )
+        self._order_placed_at.pop(order.order_id, None)
+        signal_entry = signal.entry_price
+        fill_price = order.avg_fill_price or signal_entry
+        if signal_entry and fill_price:
+            slippage = float(fill_price - signal_entry)
+            slippage_pct = abs(slippage) / float(signal_entry) * 100 if float(signal_entry) > 0 else 0.0
+            direction = "worse" if slippage > 0 else "better"
+            logger.info("Slippage %s: $%+.4f (%.2f%% %s)", order.symbol, slippage, slippage_pct, direction)
         logger.info("Opened position for %s at %s", position.symbol, position.entry_price)
         return Decimal("0")
 
@@ -281,6 +292,43 @@ class ExecutionService:
         else:
             self._state_store.save_position(position)
         return pnl_delta
+
+    async def cancel_stale_entries(self, timeout_seconds: int = 120) -> None:
+        """Cancel entry orders that have been open longer than the timeout."""
+
+        now = datetime.now(tz=UTC)
+        for oid, placed_at in list(self._order_placed_at.items()):
+            if (now - placed_at).total_seconds() > timeout_seconds:
+                record = self.orders.get(oid)
+                if record and record.status in ("Submitted", "PreSubmitted"):
+                    await self._broker.cancel_order(oid)
+                    self._pending_signals.pop(record.symbol, None)
+                    del self._order_placed_at[oid]
+                    logger.warning("Cancelled stale entry %d (%s)", oid, record.symbol)
+
+    async def convert_to_trailing_stop(
+        self,
+        symbol: str,
+        trail_amount: float,
+    ) -> None:
+        """Replace the active stop with a trailing stop order."""
+
+        position = self.positions.get(symbol)
+        if position is None or symbol in self._trailing_converted:
+            return
+        if position.stop_order_id is not None:
+            await self._broker.cancel_order(position.stop_order_id)
+        replacement = await self._broker.place_trailing_stop(
+            symbol=symbol,
+            quantity=position.remaining_quantity,
+            trail_amount=trail_amount,
+        )
+        self.orders[replacement.order_id] = replacement
+        self._state_store.save_order(replacement)
+        position.stop_order_id = replacement.order_id
+        self._state_store.save_position(position)
+        self._trailing_converted.add(symbol)
+        logger.info("Converted stop for %s to trailing (trail $%.2f)", symbol, trail_amount)
 
     def _has_open_order(self, symbol: str, purpose: OrderPurpose) -> bool:
         """Return whether a non-final order already exists for the symbol and purpose."""

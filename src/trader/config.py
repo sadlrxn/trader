@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     trader_premarket_start: time = Field(default=time(hour=4), alias="TRADER_PREMARKET_START")
     trader_target_r_multiple: Decimal = Field(default=Decimal("2"), alias="TRADER_TARGET_R_MULTIPLE")
     trader_enable_tui: bool = Field(default=True, alias="TRADER_ENABLE_TUI")
+    trader_enable_vix_gate: bool = Field(default=True, alias="TRADER_ENABLE_VIX_GATE")
+    trader_max_drawdown: Decimal = Field(default=Decimal("0.05"), alias="TRADER_MAX_DRAWDOWN")
+    trader_stale_order_timeout: int = Field(default=120, alias="TRADER_STALE_ORDER_TIMEOUT")
+    trader_trailing_stop_atr_multiple: Decimal = Field(default=Decimal("2"), alias="TRADER_TRAILING_STOP_ATR_MULTIPLE")
 
     def validate_runtime_mode(self) -> None:
         """Guard against accidentally running a live session without opt-in."""

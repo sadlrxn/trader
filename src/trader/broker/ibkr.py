@@ -385,6 +385,8 @@ class IBBrokerAdapter:
         self._market_data_requests: dict[str, int] = {}
         self._historical_requests: dict[str, int] = {}
         self._scanner_request_id: int | None = None
+        self._vix_request_id: int | None = None
+        self.last_vix: float | None = None
 
     async def connect(self) -> None:
         """Connect to IB Gateway or TWS and start the reader loop."""
@@ -617,6 +619,31 @@ class IBBrokerAdapter:
             return
         await self._call_app(self._app.cancelOrder, order_id, OrderCancel())
 
+    async def subscribe_vix(self) -> None:
+        """Subscribe to VIX index ticks on CBOE."""
+
+        if self._app is None or not self.is_connected():
+            return
+        if self._vix_request_id is not None:
+            return
+        contract = build_vix_contract()
+        req_id = self._app.next_request_id()
+        self._vix_request_id = req_id
+        self._app.register_market_data(req_id, "VIX")
+        await self._call_app(self._app.reqMktData, req_id, contract, "", False, False, [])
+
+    async def place_trailing_stop(self, symbol: str, quantity: int, trail_amount: float) -> OrderRecord:
+        """Submit a trailing stop order."""
+
+        order = build_trailing_stop_order("SELL", quantity, trail_amount)
+        return await self._place_order(
+            symbol=symbol,
+            purpose=OrderPurpose.STOP,
+            side="SELL",
+            quantity=quantity,
+            order=order,
+        )
+
     async def replace_stop_order(self, symbol: str, quantity: int, stop_price: Decimal, old_order_id: int | None) -> OrderRecord:
         """Replace an existing stop with a new stop order."""
 
@@ -707,6 +734,36 @@ def build_stop_order(
     order.transmit = transmit
     order.ocaGroup = oca_group
     order.ocaType = oca_type
+    return order
+
+
+def build_vix_contract() -> Contract:
+    """Build a contract for the CBOE VIX index."""
+
+    contract = Contract()
+    contract.symbol = "VIX"
+    contract.secType = "IND"
+    contract.exchange = "CBOE"
+    contract.currency = "USD"
+    return contract
+
+
+def build_trailing_stop_order(
+    action: str,
+    quantity: int,
+    trail_amount: float,
+    transmit: bool = True,
+) -> Order:
+    """Build a trailing stop order."""
+
+    order = Order()
+    order.action = action
+    order.orderType = "TRAIL"
+    order.totalQuantity = quantity
+    order.auxPrice = trail_amount
+    order.tif = "GTC"
+    order.outsideRth = True
+    order.transmit = transmit
     return order
 
 
