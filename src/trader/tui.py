@@ -88,7 +88,7 @@ class TraderTui(App[None]):
                 yield DataTable(id="positions-table")
                 yield DataTable(id="orders-table")
             with Vertical(id="right-panel"):
-                yield RichLog(id="logs-panel", wrap=False, highlight=True, markup=True, max_lines=1000, auto_scroll=True)
+                yield RichLog(id="logs-panel", wrap=True, highlight=True, markup=True, max_lines=1000, auto_scroll=True)
         yield Footer()
 
     async def on_mount(self) -> None:
