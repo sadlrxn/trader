@@ -6,7 +6,7 @@ from datetime import time
 from decimal import Decimal
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,14 +32,6 @@ class Settings(BaseSettings):
     trader_log_level: str = Field(default="INFO", alias="TRADER_LOG_LEVEL")
     trader_state_db: Path = Field(default=Path(".trader/state.sqlite3"), alias="TRADER_STATE_DB")
     trader_watchlist_dir: Path = Field(default=Path(".trader/watchlists"), alias="TRADER_WATCHLIST_DIR")
-    trader_grpc_host: str = Field(
-        default="127.0.0.1",
-        validation_alias=AliasChoices("TRADER_GRPC_HOST", "TRADER_RPC_HOST"),
-    )
-    trader_grpc_port: int = Field(
-        default=8765,
-        validation_alias=AliasChoices("TRADER_GRPC_PORT", "TRADER_RPC_PORT"),
-    )
     trader_risk_per_trade: Decimal = Field(default=Decimal("0.005"), alias="TRADER_RISK_PER_TRADE")
     trader_max_daily_loss: Decimal = Field(default=Decimal("0.02"), alias="TRADER_MAX_DAILY_LOSS")
     trader_max_open_positions: int = Field(default=3, alias="TRADER_MAX_OPEN_POSITIONS")

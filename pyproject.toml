@@ -5,13 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "trader"
 version = "0.1.0"
-description = "Interactive Brokers momentum trading bot with terminal UI and gRPC control."
+description = "Interactive Brokers momentum trading bot with terminal UI."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "exchange-calendars",
-    "grpcio",
-    "grpcio-tools",
     "ibapi",
     "pydantic",
     "pydantic-settings",

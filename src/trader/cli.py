@@ -8,7 +8,6 @@ from collections import deque
 
 from trader.config import Settings
 from trader.logging_utils import configure_logging
-from trader.rpc import RpcServer
 from trader.runtime import TradingRuntime
 from trader.tui import TraderTui
 
@@ -22,8 +21,6 @@ def build_parser() -> argparse.ArgumentParser:
     bot_parser = subparsers.add_parser("bot", help="Run the trading bot.")
     bot_parser.add_argument("--no-tui", action="store_true", help="Run without the Textual UI.")
 
-    subparsers.add_parser("grpc", help="Run the trading bot headless with gRPC enabled.")
-    subparsers.add_parser("rpc", help="Deprecated alias for the gRPC headless mode.")
     serve_parser = subparsers.add_parser("serve", help="Run the TUI as a web app via textual serve.")
     serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address.")
     serve_parser.add_argument("--port", type=int, default=7681, help="Port.")
@@ -52,32 +49,26 @@ def main() -> None:
         server.serve()
         return
 
-    enable_rpc = command in {"grpc", "rpc"}
-    use_tui = command not in {"grpc", "rpc"} and not getattr(args, "no_tui", False) and settings.trader_enable_tui
+    use_tui = not getattr(args, "no_tui", False) and settings.trader_enable_tui
     configure_logging(settings.trader_log_level, sink=log_sink, console=not use_tui)
 
     runtime = TradingRuntime(settings=settings, log_sink=log_sink)
-    rpc_server = RpcServer(runtime=runtime, settings=settings) if enable_rpc else None
     if not use_tui:
-        asyncio.run(run_headless(runtime=runtime, rpc_server=rpc_server, enable_rpc=enable_rpc))
+        asyncio.run(run_headless(runtime=runtime))
         return
 
     app = TraderTui(runtime=runtime)
     app.run()
 
 
-async def run_headless(runtime: TradingRuntime, rpc_server: RpcServer | None, enable_rpc: bool) -> None:
+async def run_headless(runtime: TradingRuntime) -> None:
     """Run the bot without the Textual UI."""
 
     await runtime.start()
-    if enable_rpc and rpc_server is not None:
-        await rpc_server.start()
     try:
         while True:
             await asyncio.sleep(1)
     finally:
-        if rpc_server is not None:
-            await rpc_server.stop()
         await runtime.stop()
 
 
@@ -97,5 +88,4 @@ def _run_check(settings: Settings) -> None:
     print(f"IB host: {settings.ib_host}")
     print(f"IB port: {settings.ib_port}")
     print(f"Mode: {'paper' if settings.ib_paper else 'live'}")
-    print(f"gRPC: {settings.trader_grpc_host}:{settings.trader_grpc_port}")
     print(f"Calendar: {settings.trader_market_calendar}")

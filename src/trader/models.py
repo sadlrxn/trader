@@ -186,7 +186,7 @@ class BrokerEvent(BaseModel):
 
 
 class RuntimeStatus(BaseModel):
-    """Summarize the current bot state for the TUI and RPC responses."""
+    """Summarize the current bot state for the TUI."""
 
     connected: bool = False
     market_open: bool = False
