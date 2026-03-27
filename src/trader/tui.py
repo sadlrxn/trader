@@ -24,37 +24,19 @@ class TraderTui(App[None]):
 
     CSS = """
     Screen { background: #0a0a12; color: #d0d8e4; }
-
-    /* ── Status Bar ── */
-    #status-bar { height: auto; max-height: 5; layout: horizontal; }
-    .status-card {
-        width: 1fr; height: auto; min-height: 3; max-height: 4; padding: 0 1;
-        border: round #1e3a5f; background: #0f1620;
-    }
-
-    /* ── Main Layout ── */
+    #status-bar { height: 3; }
+    .status-card { width: 1fr; height: 3; padding: 0 1; background: #0f1620; border: round #1e3a5f; }
     #workspace { height: 1fr; }
-    #left-panel { width: 1fr; min-width: 0; }
-    #right-panel { width: 1fr; min-width: 0; }
-
-    /* ── Tables ── */
+    #left-panel { width: 1fr; }
+    #right-panel { width: 1fr; }
     DataTable { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     DataTable > .datatable--header { background: #141c28; text-style: bold; color: #5b9bd5; }
     DataTable > .datatable--even-row { background: #0c1018; }
     DataTable > .datatable--odd-row { background: #101824; }
     DataTable > .datatable--cursor { background: #1e3a5f 40%; }
-
     #market-table { height: 2fr; }
-    #positions-table { height: 1fr; }
-    #orders-table { height: 1fr; }
-
-    /* ── Log ── */
-    RichLog { background: #0c1018; border: solid #1e3a5f; padding: 0 0; height: 1fr; }
-
-    /* ── Footer ── */
+    RichLog { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     Footer { background: #141c28; }
-
-    .hidden { display: none !important; width: 0; height: 0; }
     """
 
     BINDINGS = [
@@ -300,25 +282,22 @@ class TraderTui(App[None]):
         pos = self.query_one("#positions-table")
         orders = self.query_one("#orders-table")
 
+        # Reset all visible
         for w in (left, right, status, mkt, pos, orders):
-            w.remove_class("hidden")
-        left.styles.width = "1fr"
-        right.styles.width = "1fr"
+            w.display = True
 
         fp = self._focused_panel
         if not fp:
             return
-        status.add_class("hidden")
+        status.display = False
         if fp == "logs":
-            left.add_class("hidden")
+            left.display = False
         elif fp == "market":
-            right.add_class("hidden"); pos.add_class("hidden"); orders.add_class("hidden")
+            right.display = False; pos.display = False; orders.display = False
         elif fp == "positions":
-            right.add_class("hidden"); mkt.add_class("hidden"); orders.add_class("hidden")
-            left.styles.width = "1fr"
+            right.display = False; mkt.display = False; orders.display = False
         elif fp == "orders":
-            right.add_class("hidden"); mkt.add_class("hidden"); pos.add_class("hidden")
-            left.styles.width = "1fr"
+            right.display = False; mkt.display = False; pos.display = False
 
     # ── Helpers ──
 
