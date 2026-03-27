@@ -34,8 +34,8 @@ class TraderTui(App[None]):
 
     /* ── Main Layout ── */
     #workspace { height: 1fr; }
-    #left-panel { width: 1fr; }
-    #right-panel { width: 1fr; }
+    #left-panel { width: 1fr; min-width: 0; }
+    #right-panel { width: 1fr; min-width: 0; }
 
     /* ── Tables ── */
     DataTable { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
@@ -49,12 +49,12 @@ class TraderTui(App[None]):
     #orders-table { height: 1fr; }
 
     /* ── Log ── */
-    RichLog { background: #0c1018; border: solid #1e3a5f; padding: 0 1; height: 1fr; }
+    RichLog { background: #0c1018; border: solid #1e3a5f; padding: 0 0; height: 1fr; }
 
     /* ── Footer ── */
     Footer { background: #141c28; }
 
-    .hidden { display: none; }
+    .hidden { display: none !important; width: 0; height: 0; }
     """
 
     BINDINGS = [
