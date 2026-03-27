@@ -26,11 +26,10 @@ class TraderTui(App[None]):
     Screen { background: #0a0a12; color: #d0d8e4; }
 
     /* ── Status Bar ── */
-    #status-bar { height: 3; dock: top; }
+    #status-bar { height: auto; max-height: 5; layout: horizontal; }
     .status-card {
-        width: 1fr; height: 3; padding: 0 1;
-        border: solid #1e3a5f; background: #0f1620;
-        content-align: center middle;
+        width: 1fr; height: auto; min-height: 3; max-height: 4; padding: 0 1;
+        border: round #1e3a5f; background: #0f1620;
     }
 
     /* ── Main Layout ── */
