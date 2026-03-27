@@ -56,3 +56,9 @@ def configure_logging(
         handlers=handlers,
         force=True,
     )
+    # Silence ibapi noise — thousands of tick logs per second drown everything
+    logging.getLogger("ibapi").setLevel(logging.WARNING)
+    logging.getLogger("ibapi.utils").setLevel(logging.WARNING)
+    logging.getLogger("ibapi.client").setLevel(logging.WARNING)
+    logging.getLogger("ibapi.wrapper").setLevel(logging.WARNING)
+    logging.getLogger("ibapi.decoder").setLevel(logging.WARNING)
