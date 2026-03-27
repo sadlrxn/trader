@@ -15,19 +15,43 @@ from trader.strategy import should_exit_on_first_red
 logger = logging.getLogger(__name__)
 
 
+def parse_partial_stages(stages_str: str) -> list[tuple[Decimal, Decimal]]:
+    """Parse 'R_multiple:fraction,...' config into a sorted list of (r_multiple, fraction) tuples."""
+
+    stages: list[tuple[Decimal, Decimal]] = []
+    for pair in stages_str.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        r_str, frac_str = pair.split(":")
+        stages.append((Decimal(r_str.strip()), Decimal(frac_str.strip())))
+    stages.sort(key=lambda s: s[0])
+    return stages
+
+
 class ExecutionService:
     """Manage orders, open positions, and stop updates."""
 
-    def __init__(self, broker: IBBrokerAdapter, state_store: StateStore) -> None:
+    def __init__(
+        self,
+        broker: IBBrokerAdapter,
+        state_store: StateStore,
+        partial_stages_config: str = "1:0.50,2:0.50",
+        broker_positions: dict[str, Decimal] | None = None,
+    ) -> None:
         """Initialize the execution service.
 
         Args:
             broker: Live broker adapter.
             state_store: Persistence layer for positions.
+            partial_stages_config: R-multiple:fraction pairs for staged profit taking.
+            broker_positions: Reference to broker-reported positions for verification.
         """
 
         self._broker = broker
         self._state_store = state_store
+        self._partial_stages = parse_partial_stages(partial_stages_config)
+        self._broker_positions = broker_positions or {}
         self.positions: dict[str, ManagedPosition] = {
             position.symbol: position for position in self._state_store.load_positions()
         }
@@ -93,37 +117,47 @@ class ExecutionService:
         return Decimal("0")
 
     async def manage_open_position(self, symbol: str, quote: Quote, bars: list) -> None:
-        """Check price- and bar-driven exit conditions for an open position."""
+        """Check price- and bar-driven exit conditions for an open position.
+
+        Uses configurable multi-stage partial profit taking based on R-multiples.
+        """
 
         position = self.positions.get(symbol)
         if position is None:
             return
-        if (
-            not position.target_filled
-            and quote.last >= position.target_price
-            and position.target_order_id is None
-            and not self._has_open_order(symbol, OrderPurpose.TARGET)
-        ):
-            target_quantity = max(1, position.remaining_quantity // 2)
-            if position.stop_order_id is not None:
-                await self._broker.cancel_order(position.stop_order_id)
-            target_order, stop_order = await self._broker.place_target_bracket_orders(
-                symbol=symbol,
-                target_quantity=target_quantity,
-                target_price=position.target_price,
-                stop_quantity=position.remaining_quantity,
-                stop_price=position.stop_price,
-                oca_group=f"{symbol}-{uuid4().hex}",
-            )
-            self.orders[target_order.order_id] = target_order
-            self.orders[stop_order.order_id] = stop_order
-            self._state_store.save_order(target_order)
-            self._state_store.save_order(stop_order)
-            position.target_order_id = target_order.order_id
-            position.stop_order_id = stop_order.order_id
-            self._state_store.save_position(position)
-            logger.info("Submitted target order for %s at %s", symbol, position.target_price)
-            return
+        # Multi-stage partial profit: check each stage in order
+        if not self._has_open_order(symbol, OrderPurpose.TARGET):
+            risk_per_share = position.entry_price - position.stop_price
+            if risk_per_share > 0:
+                triggered_stage = self._next_triggered_stage(position, quote.last, risk_per_share)
+                if triggered_stage is not None:
+                    stage_index, _, fraction = triggered_stage
+                    sell_quantity = max(1, int(fraction * position.remaining_quantity))
+                    sell_quantity = min(sell_quantity, position.remaining_quantity)
+                    if sell_quantity > 0:
+                        if position.stop_order_id is not None:
+                            await self._broker.cancel_order(position.stop_order_id)
+                        target_order, stop_order = await self._broker.place_target_bracket_orders(
+                            symbol=symbol,
+                            target_quantity=sell_quantity,
+                            target_price=quote.last,
+                            stop_quantity=position.remaining_quantity,
+                            stop_price=position.stop_price,
+                            oca_group=f"{symbol}-{uuid4().hex}",
+                        )
+                        self.orders[target_order.order_id] = target_order
+                        self.orders[stop_order.order_id] = stop_order
+                        self._state_store.save_order(target_order)
+                        self._state_store.save_order(stop_order)
+                        position.target_order_id = target_order.order_id
+                        position.stop_order_id = stop_order.order_id
+                        position.completed_stages.add(stage_index)
+                        self._state_store.save_position(position)
+                        logger.info(
+                            "Stage %d triggered for %s: sell %d at %s (R=%.1f)",
+                            stage_index, symbol, sell_quantity, quote.last, float(triggered_stage[1]),
+                        )
+                        return
         if should_exit_on_first_red(position.opened_at, bars, position.target_filled) and not self._has_open_order(symbol, OrderPurpose.EXIT):
             if position.stop_order_id is not None:
                 await self._broker.cancel_order(position.stop_order_id)
@@ -133,12 +167,38 @@ class ExecutionService:
             self._state_store.save_order(order)
             logger.info("Submitted first-red exit for %s at %s", symbol, limit_price)
 
+    def _next_triggered_stage(
+        self, position: ManagedPosition, current_price: Decimal, risk_per_share: Decimal,
+    ) -> tuple[int, Decimal, Decimal] | None:
+        """Return the next incomplete stage whose R-multiple threshold is met.
+
+        Returns:
+            Tuple of (stage_index, r_multiple, fraction) or None.
+        """
+
+        for stage_index, (r_multiple, fraction) in enumerate(self._partial_stages):
+            if stage_index in position.completed_stages:
+                continue
+            r_achieved = (current_price - position.entry_price) / risk_per_share
+            if r_achieved >= r_multiple:
+                return stage_index, r_multiple, fraction
+        return None
+
+    def _verify_position(self, symbol: str) -> bool:
+        """Verify position exists at the broker before modifying orders."""
+
+        broker_qty = self._broker_positions.get(symbol, Decimal("0"))
+        return int(broker_qty) > 0
+
     async def update_stop(self, symbol: str, stop_price: Decimal) -> ManagedPosition:
         """Replace the active stop for a managed position."""
 
         position = self.positions.get(symbol)
         if position is None:
             raise KeyError(f"No managed position for {symbol}.")
+        if not self._verify_position(symbol):
+            logger.warning("Guard: broker has no position for %s, skipping stop update", symbol)
+            raise KeyError(f"Broker has no position for {symbol}.")
         replacement = await self._broker.replace_stop_order(
             symbol=symbol,
             quantity=position.remaining_quantity,
@@ -315,6 +375,9 @@ class ExecutionService:
 
         position = self.positions.get(symbol)
         if position is None or symbol in self._trailing_converted:
+            return
+        if not self._verify_position(symbol):
+            logger.warning("Guard: broker has no position for %s, skipping trailing stop", symbol)
             return
         if position.stop_order_id is not None:
             await self._broker.cancel_order(position.stop_order_id)

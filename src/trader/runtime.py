@@ -55,7 +55,12 @@ class TradingRuntime:
         self.status = self.state_store.load_status()
         self.status.positions = self.state_store.load_positions()
         self.broker = IBBrokerAdapter(settings)
-        self.execution = ExecutionService(broker=self.broker, state_store=self.state_store)
+        self.execution = ExecutionService(
+            broker=self.broker,
+            state_store=self.state_store,
+            partial_stages_config=settings.trader_partial_stages,
+            broker_positions=self._broker_positions,
+        )
         self.risk = RiskManager(settings)
         self.strategy = StrategyEngine(settings)
         self.bars: dict[str, list[Bar]] = defaultdict(list)

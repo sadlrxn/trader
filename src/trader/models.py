@@ -164,6 +164,7 @@ class ManagedPosition(BaseModel):
     target_order_id: int | None = None
     realized_pnl: Decimal = Decimal("0")
     target_filled: bool = False
+    completed_stages: set[int] = Field(default_factory=set)
 
 
 class BrokerEvent(BaseModel):
