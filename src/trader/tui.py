@@ -271,10 +271,13 @@ class TraderTui(App[None]):
     def _refresh_orders(self, status) -> None:
         table = self.query_one("#orders-table", DataTable)
         table.clear(columns=False)
-        for o in status.orders[-15:]:
+        active = [o for o in status.orders if o.status not in ("Inactive", "Cancelled", "Filled")]
+        for o in active[-15:]:
             px = o.limit_price if o.limit_price is not None else o.stop_price
+            status_style = "green" if o.status == "Submitted" else "yellow" if o.status == "PreSubmitted" else ""
+            status_text = Text(o.status, style=status_style) if status_style else o.status
             table.add_row(str(o.order_id), o.symbol, o.purpose.value, o.side,
-                          str(o.quantity), o.status, self._fmt(px or 0))
+                          str(o.quantity), status_text, self._fmt(px or 0))
 
     def _refresh_logs(self) -> None:
         widget = self.query_one("#logs-panel", RichLog)
