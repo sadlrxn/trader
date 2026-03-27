@@ -198,3 +198,12 @@ class RuntimeStatus(BaseModel):
     positions: list[ManagedPosition] = Field(default_factory=list)
     orders: list[OrderRecord] = Field(default_factory=list)
     market_data_symbols: list[str] = Field(default_factory=list)
+    buying_power: Decimal = Decimal("0")
+    daily_loss_pct: Decimal = Decimal("0")
+    drawdown_pct: Decimal = Decimal("0")
+    vix_value: Decimal | None = None
+    vix_regime: str = "neutral"
+    session_nlv_high: Decimal = Decimal("0")
+    open_position_count: int = 0
+    max_positions: int = 3
+    stale_orders_cancelled: int = 0

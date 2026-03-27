@@ -145,7 +145,19 @@ class TradingRuntime:
 
         self.status.positions = self.execution.snapshot_positions()
         self.status.orders = self.execution.snapshot_orders()
-        return self.status.model_copy(deep=True)
+        status = self.status.model_copy(deep=True)
+        status.vix_regime = self._vix_regime
+        status.vix_value = Decimal(str(self.broker.last_vix)) if getattr(self.broker, "last_vix", 0) else None
+        status.session_nlv_high = self._session_nlv_high
+        status.open_position_count = len(self.execution.positions)
+        status.max_positions = self.settings.trader_max_open
+        # Compute drawdown
+        if self._session_nlv_high > 0:
+            status.drawdown_pct = (self._session_nlv_high - status.equity) / self._session_nlv_high * 100
+        # Daily loss %
+        if status.equity > 0:
+            status.daily_loss_pct = status.realized_pnl / status.equity * 100
+        return status
 
     def snapshot_logs(self) -> list[str]:
         """Return the recent terminal logs."""
@@ -385,8 +397,8 @@ class TradingRuntime:
         )
         try:
             self._indicators[symbol] = compute_indicators(df)
-        except Exception:
-            logger.debug("Indicator computation failed for %s", symbol, exc_info=True)
+        except Exception as e:
+            logger.warning("Indicator computation failed for %s: %s", symbol, e, exc_info=True)
 
     async def _check_trailing_stop(self, symbol: str, quote: Quote) -> None:
         """Convert stop to trailing when price rises far enough above entry after target fill."""
@@ -411,8 +423,8 @@ class TradingRuntime:
                 await self.execution.cancel_stale_entries(
                     timeout_seconds=self.settings.trader_stale_order_timeout,
                 )
-            except Exception:
-                logger.debug("Maintenance cycle error", exc_info=True)
+            except Exception as e:
+                logger.warning("Maintenance cycle error: %s", e, exc_info=True)
 
     def _reconcile_broker_positions(self) -> None:
         """Pause trading when local state and broker positions disagree."""

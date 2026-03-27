@@ -198,8 +198,8 @@ class TraderTui(App[None]):
 
         try:
             await self._runtime.start()
-        except Exception:
-            logger.exception("Failed to start runtime services.")
+        except Exception as e:
+            logger.exception("Failed to start runtime services: %s", e)
 
     async def action_quit_bot(self) -> None:
         """Quit the terminal application."""
@@ -339,17 +339,20 @@ class TraderTui(App[None]):
         acct = self.query_one("#account-card", Static)
         equity = self._fmt_decimal(status.equity)
         pnl = self._signed_money_markup(status.realized_pnl)
-        dd = self._drawdown_pct(status.equity)
-        acct.update(Text.from_markup(f"[#8fb7dd]Account[/]\n${equity}  P&L {pnl}  DD {dd}"))
+        dd = self._fmt_decimal(status.drawdown_pct, 1)
+        high = self._fmt_decimal(status.session_nlv_high)
+        acct.update(Text.from_markup(f"[#8fb7dd]Account[/]\n[bold]${equity}[/]  P&L {pnl}  DD {dd}%  High ${high}"))
 
         # Risk
         risk = self.query_one("#risk-card", Static)
-        vix_regime = self._runtime._vix_regime
+        vix_regime = status.vix_regime
         regime_color = {"greed": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(vix_regime, "dim")
-        pos_count = len(status.positions)
-        paused = "" if status.trading_enabled else "  [bold red]PAUSED[/]"
+        vix_label = f"VIX {self._fmt_decimal(status.vix_value or 0, 1)} [{regime_color}]{vix_regime.upper()}[/]"
+        pos_label = f"Pos {status.open_position_count}/{status.max_positions}"
+        dd_label = f"DD {self._fmt_decimal(status.drawdown_pct, 1)}%"
+        paused = "  [bold red]PAUSED[/]" if not status.trading_enabled else ""
         risk.update(Text.from_markup(
-            f"[#8fb7dd]Risk[/]\nVIX [{regime_color}]{vix_regime.upper()}[/]  Pos {pos_count}{paused}"
+            f"[#8fb7dd]Risk[/]\n{vix_label}  {pos_label} | {dd_label}{paused}"
         ))
 
     # ------------------------------------------------------------------
@@ -492,7 +495,7 @@ class TraderTui(App[None]):
         phase_text = self._runtime.market_phase_text()
         pnl_text = self._signed_money_text(status.realized_pnl)
         self.title = f"${self._fmt_decimal(status.equity)} | {phase_text} | P&L {pnl_text}"
-        self.sub_title = f"{'Connected' if status.connected else 'Disconnected'} | {self._runtime._vix_regime.upper()}"
+        self.sub_title = f"{'Connected' if status.connected else 'Disconnected'} | {status.vix_regime.upper()}"
 
     def _price_direction(self, symbol: str, last_price: Decimal) -> int:
         """Return whether the last price moved up, down, or stayed flat."""
