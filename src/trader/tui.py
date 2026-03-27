@@ -295,11 +295,12 @@ class TraderTui(App[None]):
         self._focused_panel = None if self._focused_panel == panel else panel
         left = self.query_one("#left-panel")
         right = self.query_one("#right-panel")
+        status = self.query_one("#status-bar")
         mkt = self.query_one("#market-table")
         pos = self.query_one("#positions-table")
         orders = self.query_one("#orders-table")
 
-        for w in (left, right, mkt, pos, orders):
+        for w in (left, right, status, mkt, pos, orders):
             w.remove_class("hidden")
         left.styles.width = "1fr"
         right.styles.width = "1fr"
@@ -307,12 +308,11 @@ class TraderTui(App[None]):
         fp = self._focused_panel
         if not fp:
             return
+        status.add_class("hidden")
         if fp == "logs":
             left.add_class("hidden")
-            right.styles.width = "1fr"
         elif fp == "market":
             right.add_class("hidden"); pos.add_class("hidden"); orders.add_class("hidden")
-            left.styles.width = "1fr"
         elif fp == "positions":
             right.add_class("hidden"); mkt.add_class("hidden"); orders.add_class("hidden")
             left.styles.width = "1fr"
