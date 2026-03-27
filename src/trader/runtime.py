@@ -161,6 +161,11 @@ class TradingRuntime:
             key=lambda quote: (watchlist_order.get(quote.symbol, 10_000), quote.symbol),
         )
 
+    def get_indicators(self, symbol: str) -> dict:
+        """Return the latest computed indicators for a symbol."""
+
+        return self._indicators.get(symbol, {})
+
     def vwap_for_symbol(self, symbol: str) -> Decimal:
         """Return the rolling 30-minute VWAP for a symbol."""
 

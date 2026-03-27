@@ -51,7 +51,7 @@ def main() -> None:
         asyncio.run(run_headless(runtime=runtime, rpc_server=rpc_server, enable_rpc=enable_rpc))
         return
 
-    app = TraderTui(runtime=runtime, rpc_server=rpc_server)
+    app = TraderTui(runtime=runtime)
     app.run()
 
 
