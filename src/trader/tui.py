@@ -34,8 +34,8 @@ class TraderTui(App[None]):
 
     /* ── Main Layout ── */
     #workspace { height: 1fr; }
-    #left-panel { width: 3fr; }
-    #right-panel { width: 2fr; }
+    #left-panel { width: 1fr; }
+    #right-panel { width: 1fr; }
 
     /* ── Tables ── */
     DataTable { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
@@ -301,8 +301,8 @@ class TraderTui(App[None]):
 
         for w in (left, right, mkt, pos, orders):
             w.remove_class("hidden")
-        left.styles.width = "3fr"
-        right.styles.width = "2fr"
+        left.styles.width = "1fr"
+        right.styles.width = "1fr"
 
         fp = self._focused_panel
         if not fp:
