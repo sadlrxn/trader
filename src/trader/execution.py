@@ -11,6 +11,7 @@ from trader.broker.ibkr import IBBrokerAdapter
 from trader.models import ManagedPosition, OrderPurpose, OrderRecord, Quote, SignalDecision, TradeEvent
 from trader.state import StateStore
 from trader.strategy import should_exit_on_first_red
+from trader.trade_journal import NullTradeJournal, TradeJournal
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class ExecutionService:
         state_store: StateStore,
         partial_stages_config: str = "1:0.50,2:0.50",
         broker_positions: dict[str, Decimal] | None = None,
+        trade_journal: TradeJournal | None = None,
     ) -> None:
         """Initialize the execution service.
 
@@ -46,12 +48,14 @@ class ExecutionService:
             state_store: Persistence layer for positions.
             partial_stages_config: R-multiple:fraction pairs for staged profit taking.
             broker_positions: Reference to broker-reported positions for verification.
+            trade_journal: Daily JSON journal for executed buy and sell operations.
         """
 
         self._broker = broker
         self._state_store = state_store
         self._partial_stages = parse_partial_stages(partial_stages_config)
         self._broker_positions = broker_positions or {}
+        self._trade_journal = trade_journal or NullTradeJournal()
         self.positions: dict[str, ManagedPosition] = {
             position.symbol: position for position in self._state_store.load_positions()
         }
@@ -61,6 +65,7 @@ class ExecutionService:
         self._pending_signals: dict[str, SignalDecision] = {}
         self._order_placed_at: dict[int, datetime] = {}
         self._trailing_converted: set[str] = set()
+        self._target_stage_by_order: dict[int, int] = {}
 
     async def enter_signal(self, signal: SignalDecision, quantity: int) -> None:
         """Submit the entry order for a new signal."""
@@ -92,28 +97,36 @@ class ExecutionService:
     async def handle_order_update(self, order: OrderRecord) -> Decimal:
         """Apply one order status update and return realized PnL delta."""
 
+        previous = self.orders.get(order.order_id)
+        previous_filled = previous.filled_quantity if previous is not None else Decimal("0")
         self.orders[order.order_id] = order
         self._state_store.save_order(order)
-        self._state_store.append_trade_event(
-            TradeEvent(
-                timestamp=datetime.now(tz=UTC),
-                symbol=order.symbol,
-                event_type=f"order_{order.status.lower()}",
-                order_id=order.order_id,
-                quantity=int(order.filled_quantity or order.quantity),
-                price=order.avg_fill_price or order.limit_price or order.stop_price or Decimal("0"),
-                note=order.purpose.value,
+        if self._should_record_order_event(previous=previous, current=order):
+            self._state_store.append_trade_event(
+                TradeEvent(
+                    timestamp=datetime.now(tz=UTC),
+                    symbol=order.symbol,
+                    event_type=f"order_{order.status.lower()}",
+                    order_id=order.order_id,
+                    quantity=int(order.filled_quantity or order.quantity),
+                    price=order.avg_fill_price or order.limit_price or order.stop_price or Decimal("0"),
+                    note=order.purpose.value,
+                )
             )
-        )
-        if order.status != "Filled":
+        if order.purpose is OrderPurpose.ENTRY and order.status in {"Cancelled", "Inactive", "ApiCancelled"}:
+            self._pending_signals.pop(order.symbol, None)
+            self._order_placed_at.pop(order.order_id, None)
+
+        filled_delta = int(order.filled_quantity - previous_filled)
+        if filled_delta <= 0:
             return Decimal("0")
 
         if order.purpose is OrderPurpose.ENTRY:
-            return await self._handle_entry_fill(order)
+            return await self._handle_entry_fill(order, filled_delta)
         if order.purpose is OrderPurpose.TARGET:
-            return await self._handle_target_fill(order)
+            return await self._handle_target_fill(order, filled_delta)
         if order.purpose in {OrderPurpose.STOP, OrderPurpose.EXIT}:
-            return await self._handle_exit_fill(order)
+            return await self._handle_exit_fill(order, filled_delta)
         return Decimal("0")
 
     async def manage_open_position(self, symbol: str, quote: Quote, bars: list) -> None:
@@ -125,7 +138,8 @@ class ExecutionService:
         position = self.positions.get(symbol)
         if position is None:
             return
-        # Multi-stage partial profit: check each stage in order
+        # Scale out one stage at a time. A stage is only marked complete after
+        # the target actually fills, not when the order is merely submitted.
         if not self._has_open_order(symbol, OrderPurpose.TARGET):
             risk_per_share = position.entry_price - position.stop_price
             if risk_per_share > 0:
@@ -151,7 +165,7 @@ class ExecutionService:
                         self._state_store.save_order(stop_order)
                         position.target_order_id = target_order.order_id
                         position.stop_order_id = stop_order.order_id
-                        position.completed_stages.add(stage_index)
+                        self._target_stage_by_order[target_order.order_id] = stage_index
                         self._state_store.save_position(position)
                         logger.info(
                             "Stage %d triggered for %s: sell %d at %s (R=%.1f)",
@@ -234,24 +248,41 @@ class ExecutionService:
 
         return sorted(self.orders.values(), key=lambda item: item.order_id)
 
-    async def _handle_entry_fill(self, order: OrderRecord) -> Decimal:
+    async def _handle_entry_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
         """Open a managed position after the entry fills."""
 
-        signal = self._pending_signals.pop(order.symbol, None)
+        signal = self._pending_signals.get(order.symbol)
         if signal is None:
             return Decimal("0")
-        position = ManagedPosition(
+        fill_price = order.avg_fill_price or signal.entry_price
+        now = datetime.now(tz=UTC)
+        position = self.positions.get(order.symbol)
+        if position is None:
+            position = ManagedPosition(
+                symbol=order.symbol,
+                quantity=filled_quantity,
+                remaining_quantity=filled_quantity,
+                entry_price=fill_price,
+                stop_price=signal.stop_price,
+                target_price=signal.target_price,
+                change_during_buy=signal.change_during_buy,
+                signal_type=signal.signal_type,
+                opened_at=now,
+                entry_order_id=order.order_id,
+            )
+        else:
+            position.quantity += filled_quantity
+            position.remaining_quantity += filled_quantity
+            position.entry_price = fill_price
+            position.stop_price = signal.stop_price
+            position.target_price = signal.target_price
+            position.change_during_buy = signal.change_during_buy
+        stop_order = await self._sync_stop_order(
             symbol=order.symbol,
-            quantity=order.quantity,
-            remaining_quantity=order.quantity,
-            entry_price=order.avg_fill_price or signal.entry_price,
-            stop_price=signal.stop_price,
-            target_price=signal.target_price,
-            signal_type=signal.signal_type,
-            opened_at=datetime.now(tz=UTC),
-            entry_order_id=order.order_id,
+            quantity=position.remaining_quantity,
+            stop_price=position.stop_price,
+            old_order_id=position.stop_order_id,
         )
-        stop_order = await self._broker.place_stop_order(order.symbol, position.remaining_quantity, position.stop_price)
         self.orders[stop_order.order_id] = stop_order
         self._state_store.save_order(stop_order)
         position.stop_order_id = stop_order.order_id
@@ -259,19 +290,28 @@ class ExecutionService:
         self._state_store.save_position(position)
         self._state_store.append_trade_event(
             TradeEvent(
-                timestamp=datetime.now(tz=UTC),
+                timestamp=now,
                 symbol=order.symbol,
                 event_type="bought",
                 order_id=order.order_id,
-                quantity=order.quantity,
+                quantity=filled_quantity,
                 price=position.entry_price,
                 note=position.signal_type.value,
             )
         )
-        self._order_placed_at.pop(order.order_id, None)
+        self._trade_journal.append_operation(
+            timestamp=now,
+            amount=filled_quantity,
+            operation="buy",
+            stock=order.symbol,
+            change_during_buy=signal.change_during_buy,
+            profit=Decimal("0"),
+        )
+        if order.status == "Filled":
+            self._pending_signals.pop(order.symbol, None)
+            self._order_placed_at.pop(order.order_id, None)
         signal_entry = signal.entry_price
-        fill_price = order.avg_fill_price or signal_entry
-        if signal_entry and fill_price:
+        if order.status == "Filled" and signal_entry and fill_price:
             slippage = float(fill_price - signal_entry)
             slippage_pct = abs(slippage) / float(signal_entry) * 100 if float(signal_entry) > 0 else 0.0
             direction = "worse" if slippage > 0 else "better"
@@ -279,35 +319,48 @@ class ExecutionService:
         logger.info("Opened position for %s at %s", position.symbol, position.entry_price)
         return Decimal("0")
 
-    async def _handle_target_fill(self, order: OrderRecord) -> Decimal:
+    async def _handle_target_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
         """Apply target-one fill logic and move the stop to break even."""
 
         position = self.positions.get(order.symbol)
         if position is None:
             return Decimal("0")
-        filled_quantity = int(order.filled_quantity)
-        pnl_delta = (order.avg_fill_price - position.entry_price) * Decimal(filled_quantity)
+        event_time = datetime.now(tz=UTC)
+        fill_price = order.avg_fill_price or order.limit_price or position.entry_price
+        pnl_delta = (fill_price - position.entry_price) * Decimal(filled_quantity)
         position.realized_pnl += pnl_delta
         position.remaining_quantity = max(0, position.remaining_quantity - filled_quantity)
         position.target_filled = True
+        stage_index = self._target_stage_by_order.get(order.order_id)
+        if stage_index is not None:
+            position.completed_stages.add(stage_index)
         self._state_store.append_trade_event(
             TradeEvent(
-                timestamp=datetime.now(tz=UTC),
+                timestamp=event_time,
                 symbol=order.symbol,
                 event_type="sold_target",
                 order_id=order.order_id,
                 quantity=filled_quantity,
-                price=order.avg_fill_price,
+                price=fill_price,
                 pnl_delta=pnl_delta,
                 note="target fill",
             )
         )
+        self._trade_journal.append_operation(
+            timestamp=event_time,
+            amount=filled_quantity,
+            operation="sell",
+            stock=order.symbol,
+            change_during_buy=position.change_during_buy,
+            profit=pnl_delta,
+        )
         if position.remaining_quantity == 0:
+            self._target_stage_by_order.pop(order.order_id, None)
             self.positions.pop(order.symbol, None)
             self._state_store.delete_position(order.symbol)
             logger.info("Closed position for %s after target fill", order.symbol)
             return pnl_delta
-        replacement = await self._broker.replace_stop_order(
+        replacement = await self._sync_stop_order(
             symbol=order.symbol,
             quantity=position.remaining_quantity,
             stop_price=position.entry_price,
@@ -315,33 +368,45 @@ class ExecutionService:
         )
         self.orders[replacement.order_id] = replacement
         self._state_store.save_order(replacement)
+        if order.status == "Filled":
+            self._target_stage_by_order.pop(order.order_id, None)
+            position.target_order_id = None
         position.stop_price = position.entry_price
         position.stop_order_id = replacement.order_id
         self._state_store.save_position(position)
         logger.info("Locked break-even stop for %s after target fill", order.symbol)
         return pnl_delta
 
-    async def _handle_exit_fill(self, order: OrderRecord) -> Decimal:
+    async def _handle_exit_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
         """Close part or all of a position after a stop or exit order fills."""
 
         position = self.positions.get(order.symbol)
         if position is None:
             return Decimal("0")
-        filled_quantity = int(order.filled_quantity)
-        pnl_delta = (order.avg_fill_price - position.entry_price) * Decimal(filled_quantity)
+        event_time = datetime.now(tz=UTC)
+        fill_price = order.avg_fill_price or order.limit_price or order.stop_price or position.entry_price
+        pnl_delta = (fill_price - position.entry_price) * Decimal(filled_quantity)
         position.realized_pnl += pnl_delta
         position.remaining_quantity = max(0, position.remaining_quantity - filled_quantity)
         self._state_store.append_trade_event(
             TradeEvent(
-                timestamp=datetime.now(tz=UTC),
+                timestamp=event_time,
                 symbol=order.symbol,
                 event_type="sold_exit" if order.purpose is OrderPurpose.EXIT else "sold_stop",
                 order_id=order.order_id,
                 quantity=filled_quantity,
-                price=order.avg_fill_price,
+                price=fill_price,
                 pnl_delta=pnl_delta,
                 note=order.purpose.value,
             )
+        )
+        self._trade_journal.append_operation(
+            timestamp=event_time,
+            amount=filled_quantity,
+            operation="sell",
+            stock=order.symbol,
+            change_during_buy=position.change_during_buy,
+            profit=pnl_delta,
         )
         if position.remaining_quantity == 0:
             if position.target_order_id is not None and position.target_order_id != order.order_id:
@@ -396,8 +461,37 @@ class ExecutionService:
     def _has_open_order(self, symbol: str, purpose: OrderPurpose) -> bool:
         """Return whether a non-final order already exists for the symbol and purpose."""
 
-        final_statuses = {"Filled", "Cancelled", "Inactive"}
+        final_statuses = {"Filled", "Cancelled", "Inactive", "ApiCancelled"}
         return any(
             order.symbol == symbol and order.purpose == purpose and order.status not in final_statuses
             for order in self.orders.values()
+        )
+
+    def _should_record_order_event(self, previous: OrderRecord | None, current: OrderRecord) -> bool:
+        """Return whether the order update changed meaningfully enough to persist."""
+
+        if previous is None:
+            return True
+        return (
+            previous.status != current.status
+            or previous.filled_quantity != current.filled_quantity
+            or previous.avg_fill_price != current.avg_fill_price
+        )
+
+    async def _sync_stop_order(
+        self,
+        symbol: str,
+        quantity: int,
+        stop_price: Decimal,
+        old_order_id: int | None,
+    ) -> OrderRecord:
+        """Place the initial stop or replace the existing one for the new size."""
+
+        if old_order_id is None:
+            return await self._broker.place_stop_order(symbol, quantity, stop_price)
+        return await self._broker.replace_stop_order(
+            symbol=symbol,
+            quantity=quantity,
+            stop_price=stop_price,
+            old_order_id=old_order_id,
         )

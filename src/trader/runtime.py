@@ -21,6 +21,7 @@ from trader.models import Bar, BrokerEvent, BrokerEventKind, Quote, RuntimeStatu
 from trader.risk import RiskManager
 from trader.state import StateStore
 from trader.strategy import StrategyEngine
+from trader.trade_journal import TradeJournal
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def classify_vix_regime(vix: float) -> str:
     if vix >= 25:
         return "fear"
     if vix < 15:
-        return "greed"
+        return "calm"
     return "neutral"
 
 
@@ -61,6 +62,7 @@ class TradingRuntime:
             state_store=self.state_store,
             partial_stages_config=settings.trader_partial_stages,
             broker_positions=self._broker_positions,
+            trade_journal=TradeJournal(settings.trader_trade_log_dir, settings.trader_timezone),
         )
         self.risk = RiskManager(settings)
         self.strategy = StrategyEngine(settings)
@@ -85,6 +87,7 @@ class TradingRuntime:
             await self.broker.connect()
             await self.broker.sync_account()
             await self._load_daily_watchlist()
+            await self._subscribe_managed_position_symbols()
             await self._subscribe_fallback_symbols()
             await self.broker.refresh_scanner()
             if self.settings.trader_enable_vix_gate:
@@ -156,7 +159,8 @@ class TradingRuntime:
             status.drawdown_pct = (self._session_nlv_high - status.equity) / self._session_nlv_high * 100
         # Daily loss %
         if status.equity > 0:
-            status.daily_loss_pct = status.realized_pnl / status.equity * 100
+            daily_loss = -status.realized_pnl if status.realized_pnl < 0 else Decimal("0")
+            status.daily_loss_pct = daily_loss / status.equity * 100
         return status
 
     def snapshot_logs(self) -> list[str]:
@@ -227,6 +231,7 @@ class TradingRuntime:
         if event.kind is BrokerEventKind.POSITION:
             if event.position_quantity:
                 self._broker_positions[event.symbol] = event.position_quantity
+                await self._ensure_market_data_symbol(event.symbol)
             else:
                 self._broker_positions.pop(event.symbol, None)
             return
@@ -304,16 +309,20 @@ class TradingRuntime:
         symbols = self._scanner_batch[: self.settings.trader_scan_max_symbols]
         if not symbols:
             symbols = self.settings.fallback_symbols()
-        self.status.watchlist = symbols
-        for symbol in symbols:
+        self.status.watchlist = list(dict.fromkeys(symbols))
+        self.status.market_data_symbols = list(dict.fromkeys(self.status.watchlist + self._active_position_symbols()))
+        for symbol in self.status.market_data_symbols:
             await self.broker.subscribe_symbol(symbol)
-        self.status.market_data_symbols = list(dict.fromkeys(symbols))
-        self._save_daily_watchlist(symbols)
+        if self.status.watchlist:
+            self._save_daily_watchlist(self.status.watchlist)
         self.state_store.save_status(self.snapshot_status())
-        logger.info("Watchlist updated: %s", ", ".join(symbols))
+        if self.status.watchlist:
+            logger.info("Watchlist updated: %s", ", ".join(self.status.watchlist))
+        else:
+            logger.info("Scanner returned no symbols; watchlist is empty.")
 
     async def _subscribe_fallback_symbols(self) -> None:
-        """Subscribe fallback symbols immediately so live quotes are visible before scanner output."""
+        """Subscribe fallback symbols only when they were explicitly configured."""
 
         fallback = self.settings.fallback_symbols()
         if not fallback:
@@ -324,6 +333,12 @@ class TradingRuntime:
         for symbol in fallback:
             await self.broker.subscribe_symbol(symbol)
         self.state_store.save_status(self.snapshot_status())
+
+    async def _subscribe_managed_position_symbols(self) -> None:
+        """Keep market data flowing for any position already open in local state."""
+
+        for symbol in self._active_position_symbols():
+            await self._ensure_market_data_symbol(symbol)
 
     def _upsert_bar(self, bar: Bar) -> None:
         """Insert or replace a minute bar while preserving time order."""
@@ -450,6 +465,20 @@ class TradingRuntime:
         self.status.last_error = f"Position mismatch detected. {details}"
         self.state_store.save_status(self.snapshot_status())
         logger.error(self.status.last_error)
+
+    def _active_position_symbols(self) -> list[str]:
+        """Return symbols that must remain subscribed because exposure exists."""
+
+        symbols = [symbol for symbol, position in self.execution.positions.items() if position.remaining_quantity > 0]
+        symbols.extend(symbol for symbol, quantity in self._broker_positions.items() if int(quantity) > 0)
+        return list(dict.fromkeys(symbols))
+
+    async def _ensure_market_data_symbol(self, symbol: str) -> None:
+        """Subscribe a symbol once and keep it visible in the runtime state."""
+
+        if symbol not in self.status.market_data_symbols:
+            self.status.market_data_symbols.append(symbol)
+        await self.broker.subscribe_symbol(symbol)
 
     async def _load_daily_watchlist(self) -> None:
         """Load the saved daily watchlist and subscribe it before the new scanner pass completes."""

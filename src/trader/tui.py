@@ -71,7 +71,7 @@ class TraderTui(App[None]):
         for tid, cols, title in [
             ("market-table", ["Symbol", "Last", "Chg%", "Vol", "Spread", "Gap%", "RSI", "ATR%", "EMA", "Pattern", "Signal"], "Market"),
             ("positions-table", ["Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held"], "Positions"),
-            ("orders-table", ["ID", "Symbol", "Type", "Side", "Qty", "Status", "Price"], "Orders"),
+            ("orders-table", ["ID", "Symbol", "Type", "Side", "Qty", "Filled", "Status", "Price", "Avg Fill"], "Orders"),
         ]:
             t = self.query_one(f"#{tid}", DataTable)
             t.add_columns(*cols); t.cursor_type = "row"; t.zebra_stripes = True; t.border_title = title
@@ -119,7 +119,7 @@ class TraderTui(App[None]):
         self.query_one("#c-market", Static).update(Text.from_markup(f"[bold #5b9bd5]MARKET[/]  {phase}  {mode}"))
         pnl_mk = f"[bold green]+${_fmt(s.realized_pnl)}[/]" if s.realized_pnl > 0 else f"[bold red]-${_fmt(abs(s.realized_pnl))}[/]" if s.realized_pnl < 0 else f"${_fmt(s.realized_pnl)}"
         self.query_one("#c-account", Static).update(Text.from_markup(f"[bold #5b9bd5]NLV[/] [bold]${_fmt(s.equity)}[/]  P&L {pnl_mk}  DD {float(s.drawdown_pct):.1f}%"))
-        vc = {"greed": "green", "euphoria": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(s.vix_regime, "dim")
+        vc = {"calm": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(s.vix_regime, "dim")
         paused = "  [bold red]PAUSED[/]" if not s.trading_enabled else ""
         self.query_one("#c-risk", Static).update(Text.from_markup(f"[bold #5b9bd5]RISK[/]  VIX {float(s.vix_value or 0):.1f} [{vc}]{s.vix_regime.upper()}[/]  {s.open_position_count}/{s.max_positions} pos{paused}"))
         # Header
@@ -157,10 +157,28 @@ class TraderTui(App[None]):
                        _c(pnl_d, _fmt(pnl_d)), _c(pnl_p, f"{float(pnl_p):.1f}%"), f"{rm:+.1f}R", _fmt(p.stop_price), _fmt(p.target_price), f"{held}m")
         # Orders
         ot = self.query_one("#orders-table", DataTable); ot.clear(columns=False)
-        for o in [x for x in s.orders if x.status not in ("Inactive", "Cancelled", "Filled")][-15:]:
+        for o in s.orders[-20:]:
             px = o.limit_price if o.limit_price is not None else o.stop_price
-            st = Text(o.status, style="green" if o.status == "Submitted" else "yellow" if o.status == "PreSubmitted" else "")
-            ot.add_row(str(o.order_id), o.symbol, o.purpose.value, o.side, str(o.quantity), st, _fmt(px or 0))
+            if o.status == "Filled":
+                st = Text(o.status, style="bold green")
+            elif o.status in {"Submitted", "PreSubmitted"}:
+                st = Text(o.status, style="bold yellow")
+            elif o.status in {"Cancelled", "Inactive", "ApiCancelled"}:
+                st = Text(o.status, style="bold red")
+            else:
+                st = Text(o.status)
+            avg_fill = "--" if o.avg_fill_price <= 0 else _fmt(o.avg_fill_price)
+            ot.add_row(
+                str(o.order_id),
+                o.symbol,
+                o.purpose.value,
+                o.side,
+                str(o.quantity),
+                _fmt(o.filled_quantity, 0),
+                st,
+                _fmt(px or 0),
+                avg_fill,
+            )
         # Logs
         lw = self.query_one("#logs-panel", RichLog); logs = self._rt.snapshot_logs()
         if self._log_count > len(logs): self._log_count = 0; lw.clear()

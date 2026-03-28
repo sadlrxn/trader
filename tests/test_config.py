@@ -25,3 +25,10 @@ def test_paper_mode_passes_validation() -> None:
 
     settings = Settings()
     settings.validate_runtime_mode()
+
+
+def test_fallback_symbols_are_empty_by_default() -> None:
+    """Do not seed the bot with a static watchlist unless explicitly configured."""
+
+    settings = Settings.model_validate({"TRADER_FALLBACK_SYMBOLS": ""})
+    assert settings.fallback_symbols() == []

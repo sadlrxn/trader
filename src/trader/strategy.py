@@ -59,6 +59,9 @@ class StrategyEngine:
         if len(regular_bars) < 2:
             return None
 
+        # Ross-style ORB: wait for the first regular-hours candle to define the
+        # range, then only buy the first clean cross above the premarket / 9:30
+        # high while volume expands and the spread is still tradeable.
         first_bar = regular_bars[0]
         latest_bar = regular_bars[-1]
         if self._local_time(latest_bar.timestamp) > self._settings.trader_entry_cutoff:
@@ -85,6 +88,7 @@ class StrategyEngine:
             entry_price=entry_price,
             stop_price=stop_price,
             target_price=target_price,
+            change_during_buy=_percentage_change(entry_price, first_bar.open),
             reason="Opening-range breakout above premarket/first-minute high.",
         )
 
@@ -94,6 +98,9 @@ class StrategyEngine:
         if len(bars) < 8:
             return None
 
+        # Ross-style bull flag: require a fast pole, a shallow 2-4 candle
+        # pullback, then buy the first candle that makes a fresh high above the
+        # pullback while volume comes back in.
         window = list(bars[-8:])
         pole_source = window[:5]
         pole_start = pole_source[0].open
@@ -131,6 +138,7 @@ class StrategyEngine:
             entry_price=trigger,
             stop_price=pullback_low - _TICK,
             target_price=target_price,
+            change_during_buy=_percentage_change(trigger, pole_start),
             reason="Bull-flag breakout after a controlled pullback.",
         )
 
@@ -140,6 +148,9 @@ class StrategyEngine:
         if len(bars) < 10:
             return None
 
+        # Ross-style flat top: look for several highs into the same ceiling,
+        # confirm the lows are tightening upward underneath it, then buy the
+        # first push through resistance with better-than-baseline volume.
         window = list(bars[-10:])
         highs = [bar.high for bar in window]
         resistance = max(highs)
@@ -167,6 +178,7 @@ class StrategyEngine:
             entry_price=trigger,
             stop_price=stop_price,
             target_price=target_price,
+            change_during_buy=_percentage_change(trigger, window[0].open),
             reason="Flat-top breakout above repeated resistance.",
         )
 
@@ -191,6 +203,14 @@ def median_bar_range(bars: Sequence[Bar]) -> Decimal:
     if not bars:
         return Decimal("0")
     return Decimal(str(median(float(bar.range_size()) for bar in bars)))
+
+
+def _percentage_change(current: Decimal, reference: Decimal) -> Decimal:
+    """Return percent change from a reference price to the current price."""
+
+    if reference <= 0:
+        return Decimal("0")
+    return ((current - reference) / reference) * Decimal("100")
 
 
 def should_exit_on_first_red(position_entry_time: datetime, bars: Sequence[Bar], target_filled: bool) -> bool:

@@ -15,7 +15,12 @@ from trader.runtime import TradingRuntime
 def test_reconcile_broker_positions_pauses_on_mismatch(tmp_path) -> None:
     """Pause trading when broker and local position state disagree."""
 
-    settings = Settings.model_validate({"TRADER_STATE_DB": str(tmp_path / "state.sqlite3")})
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+        }
+    )
     runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
     runtime.status.trading_enabled = True
     runtime.execution.positions["AMD"] = ManagedPosition(
@@ -40,7 +45,12 @@ def test_reconcile_broker_positions_pauses_on_mismatch(tmp_path) -> None:
 def test_reconcile_broker_positions_accepts_matching_state(tmp_path) -> None:
     """Leave trading enabled when local and broker positions agree."""
 
-    settings = Settings.model_validate({"TRADER_STATE_DB": str(tmp_path / "state.sqlite3")})
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+        }
+    )
     runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
     runtime.status.trading_enabled = True
     runtime.execution.positions["AMD"] = ManagedPosition(
@@ -91,4 +101,39 @@ def test_start_handles_subscription_failure_without_raising(tmp_path) -> None:
     assert runtime.status.connected is False
     assert runtime.status.last_error == "IBKR connection dropped while sending a request."
     assert runtime._started is False
+    runtime.state_store.close()
+
+
+def test_apply_watchlist_keeps_open_positions_subscribed(tmp_path) -> None:
+    """Keep market data for open positions even when the scanner is empty."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+        }
+    )
+    runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
+    runtime.execution.positions["AMD"] = ManagedPosition(
+        symbol="AMD",
+        quantity=100,
+        remaining_quantity=100,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.50"),
+        target_price=Decimal("11.00"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+    )
+    calls: list[str] = []
+
+    async def _subscribe(symbol: str) -> None:
+        calls.append(symbol)
+
+    runtime.broker.subscribe_symbol = _subscribe  # type: ignore[method-assign]
+
+    asyncio.run(runtime._apply_watchlist())
+
+    assert runtime.status.watchlist == []
+    assert runtime.status.market_data_symbols == ["AMD"]
+    assert calls == ["AMD"]
     runtime.state_store.close()

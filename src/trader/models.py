@@ -103,6 +103,7 @@ class SignalDecision(BaseModel):
     entry_price: Decimal
     stop_price: Decimal
     target_price: Decimal
+    change_during_buy: Decimal = Decimal("0")
     reason: str
 
     def risk_per_share(self) -> Decimal:
@@ -157,6 +158,7 @@ class ManagedPosition(BaseModel):
     entry_price: Decimal
     stop_price: Decimal
     target_price: Decimal
+    change_during_buy: Decimal = Decimal("0")
     signal_type: SignalType
     opened_at: datetime
     entry_order_id: int | None = None
