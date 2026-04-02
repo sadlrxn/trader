@@ -13,6 +13,7 @@ class SignalType(StrEnum):
     """Describe the supported entry pattern families."""
 
     ORB = "opening_range_breakout"
+    FIRST_PULLBACK = "first_pullback"
     BULL_FLAG = "bull_flag"
     FLAT_TOP = "flat_top"
 
@@ -169,6 +170,20 @@ class ManagedPosition(BaseModel):
     completed_stages: set[int] = Field(default_factory=set)
 
 
+class ClosedPosition(BaseModel):
+    """Represent one fully closed trade for the TUI and persistence."""
+
+    symbol: str
+    quantity: int
+    entry_price: Decimal
+    exit_price: Decimal
+    realized_pnl: Decimal
+    opened_at: datetime
+    closed_at: datetime
+    signal_type: SignalType
+    exit_reason: str
+
+
 class BrokerEvent(BaseModel):
     """Normalize heterogeneous IBKR callbacks into one event envelope."""
 
@@ -198,6 +213,7 @@ class RuntimeStatus(BaseModel):
     realized_pnl: Decimal = Decimal("0")
     watchlist: list[str] = Field(default_factory=list)
     positions: list[ManagedPosition] = Field(default_factory=list)
+    closed_positions: list[ClosedPosition] = Field(default_factory=list)
     orders: list[OrderRecord] = Field(default_factory=list)
     market_data_symbols: list[str] = Field(default_factory=list)
     buying_power: Decimal = Decimal("0")

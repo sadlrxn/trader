@@ -35,6 +35,7 @@ class TraderTui(App[None]):
     DataTable > .datatable--odd-row { background: #101824; }
     DataTable > .datatable--cursor { background: #1e3a5f 40%; }
     #market-table { height: 2fr; }
+    #logs-panel { height: 2fr; }
     RichLog { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     Footer { background: #141c28; }
     """
@@ -42,7 +43,7 @@ class TraderTui(App[None]):
         Binding("q", "quit_bot", "Quit"), Binding("p", "pause_trading", "Pause"),
         Binding("r", "resume_trading", "Resume"), Binding("l", "focus('logs')", "Logs"),
         Binding("m", "focus('market')", "Market"), Binding("s", "focus('positions')", "Positions"),
-        Binding("o", "focus('orders')", "Orders"), Binding("escape", "focus('')", "Clear"),
+        Binding("c", "focus('closed')", "Closed"), Binding("o", "focus('orders')", "Orders"), Binding("escape", "focus('')", "Clear"),
     ]
 
     def __init__(self, runtime: TradingRuntime) -> None:
@@ -62,15 +63,17 @@ class TraderTui(App[None]):
             with Vertical(id="left-panel"):
                 yield DataTable(id="market-table")
                 yield DataTable(id="positions-table")
-                yield DataTable(id="orders-table")
             with Vertical(id="right-panel"):
+                yield DataTable(id="closed-table")
+                yield DataTable(id="orders-table")
                 yield RichLog(id="logs-panel", wrap=True, highlight=True, markup=True, max_lines=1000, auto_scroll=True)
         yield Footer()
 
     async def on_mount(self) -> None:
         for tid, cols, title in [
             ("market-table", ["Symbol", "Last", "Chg%", "Vol", "Spread", "Gap%", "RSI", "ATR%", "EMA", "Pattern", "Signal"], "Market"),
-            ("positions-table", ["Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held"], "Positions"),
+            ("positions-table", ["Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held"], "Open Positions"),
+            ("closed-table", ["Symbol", "Qty", "Entry", "Exit", "P&L$", "P&L%", "Signal", "Reason", "Closed"], "Closed Positions"),
             ("orders-table", ["ID", "Symbol", "Type", "Side", "Qty", "Filled", "Status", "Price", "Avg Fill"], "Orders"),
         ]:
             t = self.query_one(f"#{tid}", DataTable)
@@ -96,16 +99,17 @@ class TraderTui(App[None]):
             "status": self.query_one("#status-bar"),
             "left": self.query_one("#left-panel"), "right": self.query_one("#right-panel"),
             "market": self.query_one("#market-table"), "positions": self.query_one("#positions-table"),
-            "orders": self.query_one("#orders-table"),
+            "closed": self.query_one("#closed-table"), "orders": self.query_one("#orders-table"),
         }
         for w in widgets.values(): w.display = True
         if not self._focus: return
         widgets["status"].display = False
         hide = {
             "logs": ["left"],
-            "market": ["right", "positions", "orders"],
-            "positions": ["right", "market", "orders"],
-            "orders": ["right", "market", "positions"],
+            "market": ["right", "positions"],
+            "positions": ["right", "market"],
+            "closed": ["left", "orders"],
+            "orders": ["left", "closed"],
         }
         for k in hide.get(self._focus, []): widgets[k].display = False
 
@@ -155,6 +159,23 @@ class TraderTui(App[None]):
             held = max(0, int((datetime.now(tz=UTC) - p.opened_at).total_seconds())) // 60
             pt.add_row(p.symbol, str(p.remaining_quantity), _fmt(p.entry_price), _c(cur - p.entry_price, _fmt(cur)),
                        _c(pnl_d, _fmt(pnl_d)), _c(pnl_p, f"{float(pnl_p):.1f}%"), f"{rm:+.1f}R", _fmt(p.stop_price), _fmt(p.target_price), f"{held}m")
+        # Closed positions
+        ct = self.query_one("#closed-table", DataTable); ct.clear(columns=False)
+        for p in reversed(s.closed_positions[-15:]):
+            cost_basis = p.entry_price * p.quantity
+            pnl_pct = (p.realized_pnl / cost_basis * 100) if cost_basis else Decimal("0")
+            closed_at = p.closed_at.astimezone(UTC).strftime("%H:%M:%S")
+            ct.add_row(
+                p.symbol,
+                str(p.quantity),
+                _fmt(p.entry_price),
+                _fmt(p.exit_price),
+                _c(p.realized_pnl, _fmt(p.realized_pnl)),
+                _c(pnl_pct, f"{float(pnl_pct):.1f}%"),
+                p.signal_type.value.replace("_", " "),
+                p.exit_reason,
+                closed_at,
+            )
         # Orders
         ot = self.query_one("#orders-table", DataTable); ot.clear(columns=False)
         for o in s.orders[-20:]:

@@ -12,7 +12,9 @@ from trader.config import Settings
 from trader.models import Bar, Quote, SignalDecision, SignalType
 
 _TICK = Decimal("0.01")
-_MAX_SPREAD = Decimal("0.05")
+_MIN_SPREAD_LIMIT = Decimal("0.05")
+_MAX_SPREAD_LIMIT = Decimal("0.10")
+_RELATIVE_SPREAD_LIMIT = Decimal("0.0075")
 
 
 class StrategyEngine:
@@ -40,15 +42,18 @@ class StrategyEngine:
             A signal decision when one of the supported patterns is valid.
         """
 
-        if quote is None or len(bars) < 3:
+        if quote is None or not bars:
             return None
-        if quote.spread() > _MAX_SPREAD:
+        if quote.spread() > _spread_limit(quote):
             return None
 
-        ordered = sorted(bars, key=lambda item: item.timestamp)
+        ordered = self._session_bars(sorted(bars, key=lambda item: item.timestamp))
+        if not ordered:
+            return None
         return (
             self._detect_orb(symbol=symbol, bars=ordered, quote=quote)
             or self._detect_bull_flag(symbol=symbol, bars=ordered, quote=quote)
+            or self._detect_first_pullback(symbol=symbol, bars=ordered, quote=quote)
             or self._detect_flat_top(symbol=symbol, bars=ordered, quote=quote)
         )
 
@@ -142,6 +147,63 @@ class StrategyEngine:
             reason="Bull-flag breakout after a controlled pullback.",
         )
 
+    def _detect_first_pullback(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
+        """Detect the first pullback after a strong opening move."""
+
+        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= time(9, 30)]
+        if len(regular_bars) < 4:
+            return None
+
+        # Ross-style first pullback: after an opening momentum burst, wait for
+        # the first shallow 1-2 candle dip, then buy the first new high back
+        # through the pullback while volume expands again.
+        latest_bar = regular_bars[-1]
+        if self._local_time(latest_bar.timestamp) > self._settings.trader_entry_cutoff:
+            return None
+
+        for pullback_length in (2, 1):
+            if len(regular_bars) < pullback_length + 3:
+                continue
+            latest_bar = regular_bars[-1]
+            pullback = list(regular_bars[-(pullback_length + 1):-1])
+            pole = list(regular_bars[: -(pullback_length + 1)])
+            if len(pole) < 2:
+                continue
+            pole_start = pole[0].open
+            pole_high = max(bar.high for bar in pole)
+            if pole_start <= 0:
+                continue
+            pole_gain = (pole_high - pole_start) / pole_start
+            if pole_gain < Decimal("0.05"):
+                continue
+            if not all(bar.is_red() or bar.close <= bar.open + _TICK for bar in pullback):
+                continue
+
+            pullback_low = min(bar.low for bar in pullback)
+            if pole_high - pullback_low > (pole_high - pole_start) * Decimal("0.5"):
+                continue
+
+            trigger = max(bar.high for bar in pullback) + _TICK
+            if latest_bar.high < trigger and quote.last < trigger:
+                continue
+            average_pullback_volume = _average_volume(pullback, window=3)
+            if average_pullback_volume > 0 and latest_bar.volume < average_pullback_volume:
+                continue
+
+            stop_price = pullback_low - _TICK
+            target_price = trigger + ((trigger - stop_price) * self._settings.trader_target_r_multiple)
+            return SignalDecision(
+                symbol=symbol,
+                signal_type=SignalType.FIRST_PULLBACK,
+                timestamp=latest_bar.timestamp,
+                entry_price=trigger,
+                stop_price=stop_price,
+                target_price=target_price,
+                change_during_buy=_percentage_change(trigger, pole_start),
+                reason="First pullback reclaimed with fresh momentum.",
+            )
+        return None
+
     def _detect_flat_top(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
         """Detect a flat-top breakout with repeated resistance tests."""
 
@@ -187,6 +249,12 @@ class StrategyEngine:
 
         return timestamp.astimezone(self._timezone).timetz().replace(tzinfo=None)
 
+    def _session_bars(self, bars: Sequence[Bar]) -> list[Bar]:
+        """Return only bars from the same local trading date as the latest bar."""
+
+        latest_date = bars[-1].timestamp.astimezone(self._timezone).date()
+        return [bar for bar in bars if bar.timestamp.astimezone(self._timezone).date() == latest_date]
+
 
 def _average_volume(bars: Sequence[Bar], window: int) -> Decimal:
     """Return the average volume across the requested trailing window."""
@@ -211,6 +279,13 @@ def _percentage_change(current: Decimal, reference: Decimal) -> Decimal:
     if reference <= 0:
         return Decimal("0")
     return ((current - reference) / reference) * Decimal("100")
+
+
+def _spread_limit(quote: Quote) -> Decimal:
+    """Return the maximum allowed spread for fast cheap stocks."""
+
+    relative_limit = quote.last * _RELATIVE_SPREAD_LIMIT if quote.last > 0 else Decimal("0")
+    return min(_MAX_SPREAD_LIMIT, max(_MIN_SPREAD_LIMIT, relative_limit))
 
 
 def should_exit_on_first_red(position_entry_time: datetime, bars: Sequence[Bar], target_filled: bool) -> bool:

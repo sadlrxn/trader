@@ -8,7 +8,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from trader.broker.ibkr import IBBrokerAdapter
-from trader.models import ManagedPosition, OrderPurpose, OrderRecord, Quote, SignalDecision, TradeEvent
+from trader.models import ClosedPosition, ManagedPosition, OrderPurpose, OrderRecord, Quote, SignalDecision, TradeEvent
 from trader.state import StateStore
 from trader.strategy import should_exit_on_first_red
 from trader.trade_journal import NullTradeJournal, TradeJournal
@@ -59,6 +59,7 @@ class ExecutionService:
         self.positions: dict[str, ManagedPosition] = {
             position.symbol: position for position in self._state_store.load_positions()
         }
+        self.closed_positions: list[ClosedPosition] = self._state_store.load_closed_positions()
         self.orders: dict[int, OrderRecord] = {
             order.order_id: order for order in self._state_store.load_orders()
         }
@@ -138,6 +139,7 @@ class ExecutionService:
         position = self.positions.get(symbol)
         if position is None:
             return
+        await self._ensure_stop_loss_protection(position=position, quote=quote)
         # Scale out one stage at a time. A stage is only marked complete after
         # the target actually fills, not when the order is merely submitted.
         if not self._has_open_order(symbol, OrderPurpose.TARGET):
@@ -242,6 +244,11 @@ class ExecutionService:
         """Return the managed positions as a list."""
 
         return list(self.positions.values())
+
+    def snapshot_closed_positions(self) -> list[ClosedPosition]:
+        """Return the recently closed positions for TUI surfaces."""
+
+        return list(self.closed_positions)
 
     def snapshot_orders(self) -> list[OrderRecord]:
         """Return the tracked orders as a list."""
@@ -356,8 +363,12 @@ class ExecutionService:
         )
         if position.remaining_quantity == 0:
             self._target_stage_by_order.pop(order.order_id, None)
-            self.positions.pop(order.symbol, None)
-            self._state_store.delete_position(order.symbol)
+            self._close_position(
+                position=position,
+                exit_price=fill_price,
+                exit_reason="target",
+                closed_at=event_time,
+            )
             logger.info("Closed position for %s after target fill", order.symbol)
             return pnl_delta
         replacement = await self._sync_stop_order(
@@ -411,8 +422,12 @@ class ExecutionService:
         if position.remaining_quantity == 0:
             if position.target_order_id is not None and position.target_order_id != order.order_id:
                 await self._broker.cancel_order(position.target_order_id)
-            self.positions.pop(order.symbol, None)
-            self._state_store.delete_position(order.symbol)
+            self._close_position(
+                position=position,
+                exit_price=fill_price,
+                exit_reason=order.purpose.value,
+                closed_at=event_time,
+            )
             logger.info("Closed position for %s", order.symbol)
         else:
             self._state_store.save_position(position)
@@ -495,3 +510,60 @@ class ExecutionService:
             stop_price=stop_price,
             old_order_id=old_order_id,
         )
+
+    async def _ensure_stop_loss_protection(self, position: ManagedPosition, quote: Quote) -> None:
+        """Reinstall a stop or force an exit when a live position is unprotected.
+
+        This cannot guarantee a perfect stop fill in the presence of halts, gaps,
+        or exchange outages, but it does ensure the engine always tries to keep a
+        protective order live and falls back to an immediate exit when price is
+        already through the stop without a working stop order.
+        """
+
+        if self._has_open_order(position.symbol, OrderPurpose.STOP) or self._has_open_order(position.symbol, OrderPurpose.EXIT):
+            return
+        if quote.last <= position.stop_price or (quote.bid and quote.bid <= position.stop_price):
+            limit_price = max(Decimal("0.01"), quote.bid or (quote.last - Decimal("0.02")))
+            emergency = await self._broker.place_exit_order(position.symbol, position.remaining_quantity, limit_price)
+            self.orders[emergency.order_id] = emergency
+            self._state_store.save_order(emergency)
+            logger.warning("Protective stop missing for %s below stop; submitted emergency exit at %s", position.symbol, limit_price)
+            return
+        replacement = await self._sync_stop_order(
+            symbol=position.symbol,
+            quantity=position.remaining_quantity,
+            stop_price=position.stop_price,
+            old_order_id=position.stop_order_id,
+        )
+        self.orders[replacement.order_id] = replacement
+        self._state_store.save_order(replacement)
+        position.stop_order_id = replacement.order_id
+        self._state_store.save_position(position)
+        logger.warning("Protective stop missing for %s; reinstalled stop at %s", position.symbol, position.stop_price)
+
+    def _close_position(
+        self,
+        *,
+        position: ManagedPosition,
+        exit_price: Decimal,
+        exit_reason: str,
+        closed_at: datetime,
+    ) -> None:
+        """Persist a closed position and remove it from the open-position set."""
+
+        closed = ClosedPosition(
+            symbol=position.symbol,
+            quantity=position.quantity,
+            entry_price=position.entry_price,
+            exit_price=exit_price,
+            realized_pnl=position.realized_pnl,
+            opened_at=position.opened_at,
+            closed_at=closed_at,
+            signal_type=position.signal_type,
+            exit_reason=exit_reason,
+        )
+        self.closed_positions.append(closed)
+        self.closed_positions = self.closed_positions[-50:]
+        self._state_store.append_closed_position(closed)
+        self.positions.pop(position.symbol, None)
+        self._state_store.delete_position(position.symbol)

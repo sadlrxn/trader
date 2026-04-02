@@ -6,7 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from trader.models import ManagedPosition, OrderRecord, RuntimeStatus, TradeEvent
+from trader.models import ClosedPosition, ManagedPosition, OrderRecord, RuntimeStatus, TradeEvent
 
 
 class StateStore:
@@ -63,6 +63,16 @@ class StateStore:
             )
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS closed_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                closed_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
         self._connection.commit()
 
     def save_status(self, status: RuntimeStatus) -> None:
@@ -105,6 +115,24 @@ class StateStore:
 
         rows = self._connection.execute("SELECT payload FROM positions").fetchall()
         return [ManagedPosition.model_validate(json.loads(payload)) for (payload,) in rows]
+
+    def append_closed_position(self, position: ClosedPosition) -> None:
+        """Persist one fully closed trade record."""
+
+        self._connection.execute(
+            "INSERT INTO closed_positions(symbol, closed_at, payload) VALUES(?, ?, ?)",
+            (position.symbol, position.closed_at.isoformat(), position.model_dump_json()),
+        )
+        self._connection.commit()
+
+    def load_closed_positions(self, limit: int = 50) -> list[ClosedPosition]:
+        """Load recently closed positions."""
+
+        rows = self._connection.execute(
+            "SELECT payload FROM closed_positions ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [ClosedPosition.model_validate(json.loads(payload)) for (payload,) in reversed(rows)]
 
     def save_order(self, order: OrderRecord) -> None:
         """Persist one tracked order."""

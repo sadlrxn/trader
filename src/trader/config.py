@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     trader_trade_log_dir: Path = Field(default=Path(".trader/trades"), alias="TRADER_TRADE_LOG_DIR")
     trader_watchlist_dir: Path = Field(default=Path(".trader/watchlists"), alias="TRADER_WATCHLIST_DIR")
     trader_risk_per_trade: Decimal = Field(default=Decimal("0.005"), alias="TRADER_RISK_PER_TRADE")
+    trader_max_position_notional_pct: Decimal = Field(default=Decimal("0.50"), alias="TRADER_MAX_POSITION_NOTIONAL_PCT")
     trader_max_daily_loss: Decimal = Field(default=Decimal("0.02"), alias="TRADER_MAX_DAILY_LOSS")
     trader_max_open_positions: int = Field(default=3, alias="TRADER_MAX_OPEN_POSITIONS")
     trader_scan_max_symbols: int = Field(default=8, alias="TRADER_SCAN_MAX_SYMBOLS")

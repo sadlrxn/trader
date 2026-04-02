@@ -32,6 +32,27 @@ def test_detects_opening_range_breakout() -> None:
     assert signal.signal_type == SignalType.ORB
 
 
+def test_detects_opening_range_breakout_with_only_opening_bars() -> None:
+    """Allow the ORB to trigger from the first two regular-session bars."""
+
+    engine = StrategyEngine(Settings())
+    bars = [
+        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "9.90", "10.00", "9.80", "9.95", "50000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "9.95", "10.05", "9.92", "10.03", "150000"),
+    ]
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.02"),
+        ask=Decimal("10.04"),
+        last=Decimal("10.03"),
+        volume=Decimal("150000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+    signal = engine.evaluate("AMD", bars, quote)
+    assert signal is not None
+    assert signal.signal_type == SignalType.ORB
+
+
 def test_detects_bull_flag_breakout() -> None:
     """Emit a bull-flag signal after a strong pole and shallow pullback."""
 
@@ -62,6 +83,30 @@ def test_detects_bull_flag_breakout() -> None:
     signal = engine.evaluate("AMD", bars, quote)
     assert signal is not None
     assert signal.signal_type == SignalType.BULL_FLAG
+
+
+def test_detects_first_pullback_breakout() -> None:
+    """Emit a first-pullback signal after the opening move gets reclaimed."""
+
+    engine = StrategyEngine(Settings())
+    bars = [
+        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "10.00", "10.25", "9.99", "10.22", "100000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "10.22", "10.55", "10.20", "10.50", "125000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 32, tzinfo=UTC), "10.50", "10.75", "10.48", "10.70", "135000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 33, tzinfo=UTC), "10.70", "10.72", "10.50", "10.56", "80000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 34, tzinfo=UTC), "10.56", "10.80", "10.55", "10.77", "120000"),
+    ]
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.74"),
+        ask=Decimal("10.80"),
+        last=Decimal("10.78"),
+        volume=Decimal("120000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+    signal = engine.evaluate("AMD", bars, quote)
+    assert signal is not None
+    assert signal.signal_type == SignalType.FIRST_PULLBACK
 
 
 def test_first_red_exit_only_applies_before_target_fill() -> None:

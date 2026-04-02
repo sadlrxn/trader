@@ -17,13 +17,15 @@ from trader.config import Settings
 from trader.execution import ExecutionService
 from trader.indicators import compute_indicators
 from trader.market import MarketClock
-from trader.models import Bar, BrokerEvent, BrokerEventKind, Quote, RuntimeStatus
+from trader.models import Bar, BrokerEvent, BrokerEventKind, ClosedPosition, Quote, RuntimeStatus
 from trader.risk import RiskManager
 from trader.state import StateStore
 from trader.strategy import StrategyEngine
 from trader.trade_journal import TradeJournal
 
 logger = logging.getLogger(__name__)
+
+_MAX_BAR_WINDOW = 500
 
 
 def classify_vix_regime(vix: float) -> str:
@@ -55,6 +57,7 @@ class TradingRuntime:
         self.state_store = StateStore(settings.trader_state_db)
         self.status = self.state_store.load_status()
         self.status.positions = self.state_store.load_positions()
+        self.status.closed_positions = self.state_store.load_closed_positions()
         self._broker_positions: dict[str, Decimal] = {}
         self.broker = IBBrokerAdapter(settings)
         self.execution = ExecutionService(
@@ -83,6 +86,8 @@ class TradingRuntime:
         if self._started:
             return
         self.settings.validate_runtime_mode()
+        current_phase = self.market_phase()
+        self.status.market_open = current_phase == "open"
         try:
             await self.broker.connect()
             await self.broker.sync_account()
@@ -147,6 +152,7 @@ class TradingRuntime:
         """Return a fresh runtime snapshot."""
 
         self.status.positions = self.execution.snapshot_positions()
+        self.status.closed_positions = self.execution.snapshot_closed_positions()
         self.status.orders = self.execution.snapshot_orders()
         status = self.status.model_copy(deep=True)
         status.vix_regime = self._vix_regime
@@ -167,6 +173,11 @@ class TradingRuntime:
         """Return the recent terminal logs."""
 
         return list(self.log_sink)
+
+    def snapshot_closed_positions(self) -> list[ClosedPosition]:
+        """Return recently closed positions for TUI surfaces."""
+
+        return self.execution.snapshot_closed_positions()
 
     def snapshot_quotes(self) -> list[Quote]:
         """Return the latest quotes sorted by watchlist priority."""
@@ -310,9 +321,8 @@ class TradingRuntime:
         if not symbols:
             symbols = self.settings.fallback_symbols()
         self.status.watchlist = list(dict.fromkeys(symbols))
-        self.status.market_data_symbols = list(dict.fromkeys(self.status.watchlist + self._active_position_symbols()))
-        for symbol in self.status.market_data_symbols:
-            await self.broker.subscribe_symbol(symbol)
+        desired_symbols = list(dict.fromkeys(self.status.watchlist + self._active_position_symbols()))
+        await self._sync_market_data_subscriptions(desired_symbols)
         if self.status.watchlist:
             self._save_daily_watchlist(self.status.watchlist)
         self.state_store.save_status(self.snapshot_status())
@@ -325,13 +335,10 @@ class TradingRuntime:
         """Subscribe fallback symbols only when they were explicitly configured."""
 
         fallback = self.settings.fallback_symbols()
-        if not fallback:
+        if not fallback or self.status.watchlist or self.status.market_data_symbols:
             return
-        self.status.market_data_symbols = list(dict.fromkeys(self.status.market_data_symbols + fallback))
-        if not self.status.watchlist:
-            self.status.watchlist = fallback
-        for symbol in fallback:
-            await self.broker.subscribe_symbol(symbol)
+        self.status.watchlist = list(dict.fromkeys(fallback))
+        await self._sync_market_data_subscriptions(self.status.watchlist)
         self.state_store.save_status(self.snapshot_status())
 
     async def _subscribe_managed_position_symbols(self) -> None:
@@ -350,11 +357,12 @@ class TradingRuntime:
             if series:
                 series[-1].is_complete = True
             series.append(bar)
-        del series[:-30]
+        del series[:-_MAX_BAR_WINDOW]
 
     async def _evaluate_signal(self, symbol: str) -> None:
         """Evaluate entry logic for one symbol and submit orders when approved."""
 
+        self.status.market_open = self.market_phase() == "open"
         if not self.status.market_open:
             return
         if self.settings.trader_enable_vix_gate and self._vix_regime in ("panic", "fear"):
@@ -479,6 +487,18 @@ class TradingRuntime:
         if symbol not in self.status.market_data_symbols:
             self.status.market_data_symbols.append(symbol)
         await self.broker.subscribe_symbol(symbol)
+
+    async def _sync_market_data_subscriptions(self, desired_symbols: list[str]) -> None:
+        """Make broker subscriptions match the current watchlist and open positions."""
+
+        current_symbols = list(self.status.market_data_symbols)
+        desired = list(dict.fromkeys(desired_symbols))
+        for symbol in current_symbols:
+            if symbol not in desired:
+                await self.broker.unsubscribe_symbol(symbol)
+        for symbol in desired:
+            await self.broker.subscribe_symbol(symbol)
+        self.status.market_data_symbols = desired
 
     async def _load_daily_watchlist(self) -> None:
         """Load the saved daily watchlist and subscribe it before the new scanner pass completes."""

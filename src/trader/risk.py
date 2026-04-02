@@ -82,9 +82,14 @@ class RiskManager:
         risk_per_share = signal.risk_per_share()
         if risk_per_share <= Decimal("0"):
             return RiskDecision(approved=False, reason="Signal stop is not below entry.")
+        if signal.entry_price <= Decimal("0"):
+            return RiskDecision(approved=False, reason="Signal entry price is invalid.")
 
         risk_budget = equity * self._settings.trader_risk_per_trade
-        quantity = int((risk_budget / risk_per_share).to_integral_value(rounding=ROUND_DOWN))
+        risk_quantity = int((risk_budget / risk_per_share).to_integral_value(rounding=ROUND_DOWN))
+        max_position_value = equity * self._settings.trader_max_position_notional_pct
+        notional_quantity = int((max_position_value / signal.entry_price).to_integral_value(rounding=ROUND_DOWN))
+        quantity = min(risk_quantity, notional_quantity)
         if quantity <= 0:
             return RiskDecision(approved=False, reason="Risk budget does not allow a minimum size.")
 

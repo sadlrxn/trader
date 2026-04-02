@@ -171,8 +171,10 @@ Live market rows are color-coded:
 
 - Market data comes directly from the IBKR socket client in `ibga`.
 - The bot trades only when real account equity is available from IBKR. It no longer sizes entries from a fallback balance.
+- Position size is capped by both stop-risk and max notional so tight-stop setups do not turn into broker-rejected oversized orders.
 - A first-red exit only uses completed bars, not a still-forming minute candle.
 - ORB entries only trigger on the breakout cross instead of re-firing repeatedly after the level is already broken.
+- First-pullback entries are supported in addition to ORB, bull-flag, and flat-top breakouts.
 - Bull-flag and flat-top entries now require breakout volume confirmation.
 - The scanner owns the watchlist by default; there is no built-in static watchlist unless `TRADER_FALLBACK_SYMBOLS` is explicitly configured.
 - Open positions stay subscribed even if the scanner rotates to other symbols.

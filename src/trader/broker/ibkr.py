@@ -526,6 +526,18 @@ class IBBrokerAdapter:
                 [],
             )
 
+    async def unsubscribe_symbol(self, symbol: str) -> None:
+        """Cancel market data and historical subscriptions for one symbol."""
+
+        if self._app is None or not self.is_connected():
+            return
+        market_req_id = self._market_data_requests.pop(symbol, None)
+        if market_req_id is not None:
+            await self._call_app(self._app.cancelMktData, market_req_id)
+        historical_req_id = self._historical_requests.pop(symbol, None)
+        if historical_req_id is not None:
+            await self._call_app(self._app.cancelHistoricalData, historical_req_id)
+
     async def place_entry_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
         """Submit a limit buy order for an entry."""
 

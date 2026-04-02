@@ -80,3 +80,33 @@ def test_size_signal_rejects_when_equity_is_unavailable() -> None:
         trading_enabled=True,
     )
     assert decision.approved is False
+
+
+def test_size_signal_caps_quantity_by_position_notional() -> None:
+    """Cap quantity when a tight stop would otherwise create an oversized order."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_RISK_PER_TRADE": "0.01",
+            "TRADER_MAX_POSITION_NOTIONAL_PCT": "0.50",
+        }
+    )
+    manager = RiskManager(settings)
+    signal = SignalDecision(
+        symbol="AMD",
+        signal_type=SignalType.ORB,
+        timestamp=datetime.now(tz=UTC),
+        entry_price=Decimal("20.00"),
+        stop_price=Decimal("19.90"),
+        target_price=Decimal("20.20"),
+        reason="test",
+    )
+    decision = manager.size_signal(
+        signal=signal,
+        equity=Decimal("10000"),
+        realized_pnl=Decimal("0"),
+        open_positions=0,
+        trading_enabled=True,
+    )
+    assert decision.approved is True
+    assert decision.quantity == 250

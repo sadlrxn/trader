@@ -19,19 +19,25 @@ class FakeBroker:
     def __init__(self) -> None:
         self._next_order_id = 1
         self.cancelled_orders: list[int] = []
+        self.exit_orders: list[OrderRecord] = []
+        self.stop_orders: list[OrderRecord] = []
 
     async def place_entry_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
         return self._record(symbol, OrderPurpose.ENTRY, "BUY", quantity, limit_price=limit_price)
 
     async def place_stop_order(self, symbol: str, quantity: int, stop_price: Decimal) -> OrderRecord:
-        return self._record(symbol, OrderPurpose.STOP, "SELL", quantity, stop_price=stop_price, status="Submitted")
+        order = self._record(symbol, OrderPurpose.STOP, "SELL", quantity, stop_price=stop_price, status="Submitted")
+        self.stop_orders.append(order)
+        return order
 
     async def replace_stop_order(
         self, symbol: str, quantity: int, stop_price: Decimal, old_order_id: int | None,
     ) -> OrderRecord:
         if old_order_id is not None:
             self.cancelled_orders.append(old_order_id)
-        return self._record(symbol, OrderPurpose.STOP, "SELL", quantity, stop_price=stop_price, status="Submitted")
+        order = self._record(symbol, OrderPurpose.STOP, "SELL", quantity, stop_price=stop_price, status="Submitted")
+        self.stop_orders.append(order)
+        return order
 
     async def place_target_bracket_orders(
         self,
@@ -49,7 +55,9 @@ class FakeBroker:
         )
 
     async def place_exit_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
-        return self._record(symbol, OrderPurpose.EXIT, "SELL", quantity, limit_price=limit_price, status="Submitted")
+        order = self._record(symbol, OrderPurpose.EXIT, "SELL", quantity, limit_price=limit_price, status="Submitted")
+        self.exit_orders.append(order)
+        return order
 
     async def place_trailing_stop(self, symbol: str, quantity: int, trail_amount: float) -> OrderRecord:
         return self._record(
@@ -215,4 +223,127 @@ def test_duplicate_filled_updates_do_not_double_count_pnl(tmp_path) -> None:
     assert second_delta == Decimal("0")
     assert service.positions["AMD"].remaining_quantity == 5
     assert service.positions["AMD"].realized_pnl == Decimal("2.50")
+    state_store.close()
+
+
+def test_full_exit_records_closed_position(tmp_path) -> None:
+    """Persist fully closed trades so the TUI can display them."""
+
+    broker = FakeBroker()
+    state_store = StateStore(tmp_path / "state.sqlite3")
+    service = ExecutionService(
+        broker=broker,
+        state_store=state_store,
+        broker_positions={"AMD": Decimal("10")},
+    )
+    position = ManagedPosition(
+        symbol="AMD",
+        quantity=10,
+        remaining_quantity=10,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.50"),
+        target_price=Decimal("11.00"),
+        change_during_buy=Decimal("8.00"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+        stop_order_id=9,
+    )
+    service.positions["AMD"] = position
+    state_store.save_position(position)
+    stop_order = OrderRecord(
+        order_id=9,
+        symbol="AMD",
+        purpose=OrderPurpose.STOP,
+        side="SELL",
+        quantity=10,
+        status="Filled",
+        stop_price=Decimal("9.50"),
+        filled_quantity=Decimal("10"),
+        avg_fill_price=Decimal("9.48"),
+    )
+
+    pnl_delta = asyncio.run(service.handle_order_update(stop_order))
+
+    assert pnl_delta == Decimal("-5.20")
+    assert "AMD" not in service.positions
+    assert service.closed_positions[-1].symbol == "AMD"
+    assert service.closed_positions[-1].exit_reason == "stop"
+    assert service.closed_positions[-1].realized_pnl == Decimal("-5.20")
+    assert state_store.load_closed_positions(limit=1)[0].symbol == "AMD"
+    state_store.close()
+
+
+def test_missing_stop_is_reinstalled_for_open_position(tmp_path) -> None:
+    """Reinstall a protective stop when a live position has none working."""
+
+    broker = FakeBroker()
+    state_store = StateStore(tmp_path / "state.sqlite3")
+    service = ExecutionService(
+        broker=broker,
+        state_store=state_store,
+        broker_positions={"AMD": Decimal("10")},
+    )
+    position = ManagedPosition(
+        symbol="AMD",
+        quantity=10,
+        remaining_quantity=10,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.70"),
+        target_price=Decimal("10.60"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+    )
+    service.positions["AMD"] = position
+    state_store.save_position(position)
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.05"),
+        ask=Decimal("10.07"),
+        last=Decimal("10.06"),
+        volume=Decimal("100000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    asyncio.run(service.manage_open_position("AMD", quote, []))
+
+    assert broker.stop_orders
+    assert service.positions["AMD"].stop_order_id is not None
+    state_store.close()
+
+
+def test_missing_stop_below_trigger_submits_emergency_exit(tmp_path) -> None:
+    """Force an immediate exit when price is already through the stop and no stop exists."""
+
+    broker = FakeBroker()
+    state_store = StateStore(tmp_path / "state.sqlite3")
+    service = ExecutionService(
+        broker=broker,
+        state_store=state_store,
+        broker_positions={"AMD": Decimal("10")},
+    )
+    position = ManagedPosition(
+        symbol="AMD",
+        quantity=10,
+        remaining_quantity=10,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.70"),
+        target_price=Decimal("10.60"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+    )
+    service.positions["AMD"] = position
+    state_store.save_position(position)
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("9.60"),
+        ask=Decimal("9.62"),
+        last=Decimal("9.61"),
+        volume=Decimal("100000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    asyncio.run(service.manage_open_position("AMD", quote, []))
+
+    assert broker.exit_orders
+    assert broker.exit_orders[-1].purpose is OrderPurpose.EXIT
     state_store.close()
