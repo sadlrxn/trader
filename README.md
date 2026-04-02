@@ -112,6 +112,7 @@ Main shortcuts:
 - `m`: toggle full-screen live market data
 - `s`: toggle full-screen positions
 - `o`: toggle full-screen orders
+- `x`: open the close-position modal; press a position number to submit a manual exit, or `x` / `Esc` to cancel
 - `p`: pause trading
 - `r`: resume trading
 - `Esc`: clear full-screen mode
@@ -177,8 +178,10 @@ Live market rows are color-coded:
 - First-pullback entries are supported in addition to ORB, bull-flag, and flat-top breakouts.
 - Bull-flag and flat-top entries now require breakout volume confirmation.
 - The scanner owns the watchlist by default; there is no built-in static watchlist unless `TRADER_FALLBACK_SYMBOLS` is explicitly configured.
+- Fallback symbols are only a bootstrap when no live scanner symbols are available; once live momentum symbols arrive, the fallback list is discarded.
 - Open positions stay subscribed even if the scanner rotates to other symbols.
 - Executed buys and sells are written to dated JSON trade journals in addition to SQLite trade events.
+- Closed trades are persisted in SQLite and shown in a dedicated closed-positions panel in the TUI.
 - If broker positions and local managed positions disagree, trading is paused and the mismatch is surfaced as an error.
 
 ## Project Notes

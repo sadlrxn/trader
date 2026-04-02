@@ -8,7 +8,10 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, RichLog, Static
+
+from trader.models import ManagedPosition
 from trader.runtime import TradingRuntime
 
 logger = logging.getLogger(__name__)
@@ -20,6 +23,51 @@ def _c(val, label: str) -> Text:
 
 def _fmt(v, p: int = 2) -> str:
     return f"{float(v):,.{p}f}"
+
+
+class ClosePositionModal(ModalScreen[str | None]):
+    """Simple modal that lets the operator choose a live position by number."""
+
+    CSS = """
+    ClosePositionModal {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.75);
+    }
+    #close-dialog {
+        width: 72;
+        border: round #1e3a5f;
+        background: #0f1620;
+        padding: 1 2;
+    }
+    """
+    BINDINGS = [
+        Binding("x", "cancel", "Cancel"),
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, positions: list[ManagedPosition]) -> None:
+        super().__init__()
+        self._positions = positions
+
+    def compose(self) -> ComposeResult:
+        lines = ["Select A Position To Close", ""]
+        for index, position in enumerate(self._positions, start=1):
+            lines.append(
+                f"[{index}] {position.symbol}  qty={position.remaining_quantity}  "
+                f"entry={_fmt(position.entry_price)}  stop={_fmt(position.stop_price)}"
+            )
+        lines.extend(["", "Press the number for a position.", "Press x or Esc to cancel."])
+        yield Static("\n".join(lines), id="close-dialog")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_key(self, event) -> None:  # noqa: ANN001
+        if len(event.key) == 1 and event.key.isdigit():
+            index = int(event.key) - 1
+            if 0 <= index < len(self._positions):
+                self.dismiss(self._positions[index].symbol)
+                event.stop()
 
 
 class TraderTui(App[None]):
@@ -43,7 +91,8 @@ class TraderTui(App[None]):
         Binding("q", "quit_bot", "Quit"), Binding("p", "pause_trading", "Pause"),
         Binding("r", "resume_trading", "Resume"), Binding("l", "focus('logs')", "Logs"),
         Binding("m", "focus('market')", "Market"), Binding("s", "focus('positions')", "Positions"),
-        Binding("c", "focus('closed')", "Closed"), Binding("o", "focus('orders')", "Orders"), Binding("escape", "focus('')", "Clear"),
+        Binding("c", "focus('closed')", "Closed"), Binding("o", "focus('orders')", "Orders"),
+        Binding("x", "open_close_modal", "Close"), Binding("escape", "focus('')", "Clear"),
     ]
 
     def __init__(self, runtime: TradingRuntime) -> None:
@@ -92,6 +141,13 @@ class TraderTui(App[None]):
     async def action_quit_bot(self) -> None: self.exit()
     async def action_pause_trading(self) -> None: self._rt.pause_trading()
     async def action_resume_trading(self) -> None: self._rt.resume_trading()
+
+    def action_open_close_modal(self) -> None:
+        status = self._rt.snapshot_status()
+        if not status.positions:
+            logger.warning("No open positions available to close.")
+            return
+        self.push_screen(ClosePositionModal(status.positions), self._handle_close_selection)
 
     def action_focus(self, panel: str) -> None:
         self._focus = "" if self._focus == panel else panel
@@ -205,6 +261,20 @@ class TraderTui(App[None]):
         if self._log_count > len(logs): self._log_count = 0; lw.clear()
         for line in logs[self._log_count:]: lw.write(line)
         self._log_count = len(logs)
+
+    def _handle_close_selection(self, symbol: str | None) -> None:
+        if symbol is None:
+            logger.info("Manual close selection cancelled.")
+            return
+        asyncio.create_task(self._submit_manual_close(symbol))
+
+    async def _submit_manual_close(self, symbol: str) -> None:
+        try:
+            await self._rt.close_position(symbol)
+        except (KeyError, ValueError, RuntimeError) as error:
+            logger.error("Manual close failed for %s: %s", symbol, error)
+            return
+        logger.info("Manual close requested for %s", symbol)
 
     def _dir(self, sym: str, price: Decimal) -> int:
         prev = self._prev.get(sym); self._prev[sym] = price

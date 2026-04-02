@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     trader_max_position_notional_pct: Decimal = Field(default=Decimal("0.50"), alias="TRADER_MAX_POSITION_NOTIONAL_PCT")
     trader_max_daily_loss: Decimal = Field(default=Decimal("0.02"), alias="TRADER_MAX_DAILY_LOSS")
     trader_max_open_positions: int = Field(default=3, alias="TRADER_MAX_OPEN_POSITIONS")
-    trader_scan_max_symbols: int = Field(default=8, alias="TRADER_SCAN_MAX_SYMBOLS")
+    trader_scan_max_symbols: int = Field(default=20, alias="TRADER_SCAN_MAX_SYMBOLS")
     trader_scan_above_price: Decimal = Field(default=Decimal("1"), alias="TRADER_SCAN_ABOVE_PRICE")
     trader_scan_below_price: Decimal = Field(default=Decimal("20"), alias="TRADER_SCAN_BELOW_PRICE")
     trader_scan_above_volume: int = Field(default=100_000, alias="TRADER_SCAN_ABOVE_VOLUME")

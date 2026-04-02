@@ -148,6 +148,15 @@ class TradingRuntime:
         self.status.positions = self.execution.snapshot_positions()
         self.state_store.save_status(self.snapshot_status())
 
+    async def close_position(self, symbol: str) -> None:
+        """Submit a manual exit for one open position."""
+
+        quote = self.quotes.get(symbol)
+        await self.execution.manual_exit_position(symbol=symbol, quote=quote)
+        self.status.positions = self.execution.snapshot_positions()
+        self.status.orders = self.execution.snapshot_orders()
+        self.state_store.save_status(self.snapshot_status())
+
     def snapshot_status(self) -> RuntimeStatus:
         """Return a fresh runtime snapshot."""
 

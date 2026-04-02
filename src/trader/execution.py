@@ -240,6 +240,45 @@ class ExecutionService:
         logger.info("Updated stop for %s to %s", symbol, stop_price)
         return position
 
+    async def manual_exit_position(self, symbol: str, quote: Quote | None) -> OrderRecord:
+        """Submit a manual exit for an open position from the operator interface."""
+
+        position = self.positions.get(symbol)
+        if position is None:
+            raise KeyError(f"No managed position for {symbol}.")
+        if not self._verify_position(symbol):
+            raise KeyError(f"Broker has no position for {symbol}.")
+        if self._has_open_order(symbol, OrderPurpose.EXIT):
+            raise ValueError(f"Manual exit already pending for {symbol}.")
+
+        if position.stop_order_id is not None and self._has_open_order(symbol, OrderPurpose.STOP):
+            await self._broker.cancel_order(position.stop_order_id)
+        if position.target_order_id is not None and self._has_open_order(symbol, OrderPurpose.TARGET):
+            await self._broker.cancel_order(position.target_order_id)
+
+        if quote is not None and quote.bid > 0:
+            limit_price = max(Decimal("0.01"), quote.bid)
+        elif quote is not None and quote.last > 0:
+            limit_price = max(Decimal("0.01"), quote.last - Decimal("0.02"))
+        else:
+            limit_price = max(Decimal("0.01"), position.stop_price)
+        order = await self._broker.place_exit_order(symbol, position.remaining_quantity, limit_price)
+        self.orders[order.order_id] = order
+        self._state_store.save_order(order)
+        self._state_store.append_trade_event(
+            TradeEvent(
+                timestamp=datetime.now(tz=UTC),
+                symbol=symbol,
+                event_type="manual_exit_submitted",
+                order_id=order.order_id,
+                quantity=position.remaining_quantity,
+                price=limit_price,
+                note="operator requested exit",
+            )
+        )
+        logger.info("Manual exit submitted for %s at %s", symbol, limit_price)
+        return order
+
     def snapshot_positions(self) -> list[ManagedPosition]:
         """Return the managed positions as a list."""
 

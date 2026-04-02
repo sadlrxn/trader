@@ -347,3 +347,54 @@ def test_missing_stop_below_trigger_submits_emergency_exit(tmp_path) -> None:
     assert broker.exit_orders
     assert broker.exit_orders[-1].purpose is OrderPurpose.EXIT
     state_store.close()
+
+
+def test_manual_exit_position_submits_marketable_exit_order(tmp_path) -> None:
+    """Allow the TUI to request a manual close for an open day-trade position."""
+
+    broker = FakeBroker()
+    state_store = StateStore(tmp_path / "state.sqlite3")
+    service = ExecutionService(
+        broker=broker,
+        state_store=state_store,
+        broker_positions={"AMD": Decimal("10")},
+    )
+    position = ManagedPosition(
+        symbol="AMD",
+        quantity=10,
+        remaining_quantity=10,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.70"),
+        target_price=Decimal("10.60"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+        stop_order_id=7,
+    )
+    service.positions["AMD"] = position
+    state_store.save_position(position)
+    submitted_stop = OrderRecord(
+        order_id=7,
+        symbol="AMD",
+        purpose=OrderPurpose.STOP,
+        side="SELL",
+        quantity=10,
+        status="Submitted",
+        stop_price=Decimal("9.70"),
+    )
+    service.orders[7] = submitted_stop
+    state_store.save_order(submitted_stop)
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.12"),
+        ask=Decimal("10.15"),
+        last=Decimal("10.13"),
+        volume=Decimal("100000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    order = asyncio.run(service.manual_exit_position("AMD", quote))
+
+    assert order.purpose is OrderPurpose.EXIT
+    assert order.limit_price == Decimal("10.12")
+    assert broker.cancelled_orders == [7]
+    state_store.close()
