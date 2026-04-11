@@ -434,6 +434,10 @@ class IBBrokerAdapter:
         run_thread = self._run_thread
         self._app = None
         self._run_thread = None
+        self._market_data_requests.clear()
+        self._historical_requests.clear()
+        self._scanner_request_id = None
+        self._vix_request_id = None
         if app is None:
             return
         await asyncio.to_thread(app.disconnect)

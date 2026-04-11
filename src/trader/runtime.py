@@ -357,6 +357,12 @@ class TradingRuntime:
                 return
             try:
                 await self.broker.connect()
+                await self.broker.sync_account()
+                for symbol in list(self.status.market_data_symbols):
+                    await self.broker.subscribe_symbol(symbol)
+                await self.broker.refresh_scanner()
+                if self.settings.trader_enable_vix_gate:
+                    await self.broker.subscribe_vix()
             except (ConnectionError, TimeoutError, OSError, RuntimeError) as error:
                 self.status.last_error = str(error)
                 logger.error("Reconnect attempt failed: %s", error)
