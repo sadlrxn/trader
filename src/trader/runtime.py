@@ -26,6 +26,7 @@ from trader.trade_journal import TradeJournal
 logger = logging.getLogger(__name__)
 
 _MAX_BAR_WINDOW = 500
+_RECONNECT_INTERVAL_SECONDS = 5.0
 
 
 def classify_vix_regime(vix: float) -> str:
@@ -73,6 +74,7 @@ class TradingRuntime:
         self.quotes = {}
         self._scanner_batch: list[str] = []
         self._tasks: list[asyncio.Task[None]] = []
+        self._reconnect_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._started = False
         self._last_signal_timestamp: dict[str, datetime] = {}
@@ -121,7 +123,13 @@ class TradingRuntime:
         self._stop_event.set()
         for task in self._tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+        pending = list(self._tasks)
+        if self._reconnect_task is not None:
+            pending.append(self._reconnect_task)
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._reconnect_task = None
         await self.broker.disconnect()
         self.status.positions = self.execution.snapshot_positions()
         self.status.orders = self.execution.snapshot_orders()
@@ -239,6 +247,8 @@ class TradingRuntime:
             return
         if event.kind is BrokerEventKind.DISCONNECTED:
             self.status.connected = False
+            logger.warning("Broker disconnected -- scheduling reconnect")
+            self._schedule_reconnect()
             return
         if event.kind is BrokerEventKind.ERROR:
             self.status.last_error = event.message
@@ -314,6 +324,8 @@ class TradingRuntime:
 
         while not self._stop_event.is_set():
             await asyncio.sleep(60)
+            if not self.broker.is_connected():
+                continue
             self._scanner_batch.clear()
             try:
                 await self.broker.refresh_scanner()
@@ -322,6 +334,36 @@ class TradingRuntime:
                 self.status.last_error = str(error)
                 self.state_store.save_status(self.snapshot_status())
                 logger.error(self.status.last_error)
+                self._schedule_reconnect()
+
+    def _schedule_reconnect(self) -> None:
+        """Ensure a reconnect loop task is running."""
+
+        if self._stop_event.is_set():
+            return
+        if self._reconnect_task is not None and not self._reconnect_task.done():
+            return
+        self._reconnect_task = asyncio.create_task(self._reconnect_loop(), name="broker-reconnect")
+
+    async def _reconnect_loop(self) -> None:
+        """Retry the broker connection at a fixed interval until it succeeds."""
+
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.sleep(_RECONNECT_INTERVAL_SECONDS)
+            except asyncio.CancelledError:
+                return
+            if self._stop_event.is_set() or self.broker.is_connected():
+                return
+            try:
+                await self.broker.connect()
+            except (ConnectionError, TimeoutError, OSError, RuntimeError) as error:
+                self.status.last_error = str(error)
+                logger.error("Reconnect attempt failed: %s", error)
+                await self.broker.disconnect()
+                continue
+            logger.info("Broker reconnected successfully")
+            return
 
     async def _apply_watchlist(self) -> None:
         """Subscribe market data for the latest scanner symbols."""
