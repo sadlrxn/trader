@@ -1,7 +1,6 @@
 """Textual terminal UI for the trading bot."""
 from __future__ import annotations
 import asyncio, logging
-from contextlib import suppress
 from datetime import UTC, datetime
 from decimal import Decimal
 from rich.text import Text
@@ -76,13 +75,17 @@ class TraderTui(App[None]):
     #status-bar { height: 3; }
     .status-card { width: 1fr; height: 3; padding: 0 1; background: #0f1620; border: round #1e3a5f; }
     #workspace { height: 1fr; }
-    #left-panel, #right-panel { width: 1fr; }
+    #left-panel { width: 3fr; }
+    #right-panel { width: 2fr; }
     DataTable { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     DataTable > .datatable--header { background: #141c28; text-style: bold; color: #5b9bd5; }
     DataTable > .datatable--even-row { background: #0c1018; }
     DataTable > .datatable--odd-row { background: #101824; }
     DataTable > .datatable--cursor { background: #1e3a5f 40%; }
-    #market-table { height: 2fr; }
+    #market-table { height: 1fr; }
+    #positions-table { height: 1fr; }
+    #closed-table { height: 1fr; }
+    #orders-table { height: 1fr; }
     #logs-panel { height: 2fr; }
     RichLog { background: #0c1018; border: solid #1e3a5f; height: 1fr; }
     Footer { background: #141c28; }
@@ -111,8 +114,8 @@ class TraderTui(App[None]):
         with Horizontal(id="workspace"):
             with Vertical(id="left-panel"):
                 yield DataTable(id="market-table")
-                yield DataTable(id="positions-table")
             with Vertical(id="right-panel"):
+                yield DataTable(id="positions-table")
                 yield DataTable(id="closed-table")
                 yield DataTable(id="orders-table")
                 yield RichLog(id="logs-panel", wrap=True, highlight=True, markup=True, max_lines=1000, auto_scroll=True)
@@ -120,7 +123,7 @@ class TraderTui(App[None]):
 
     async def on_mount(self) -> None:
         for tid, cols, title in [
-            ("market-table", ["Symbol", "Last", "Chg%", "Vol", "Spread", "Gap%", "RSI", "ATR%", "EMA", "Pattern", "Signal"], "Market"),
+            ("market-table", ["Symbol", "Last", "Chg%", "Vol", "Spread", "PM30%", "HOD%", "RSI", "ATR%", "EMA", "Signal"], "Market"),
             ("positions-table", ["Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held"], "Open Positions"),
             ("closed-table", ["Symbol", "Qty", "Entry", "Exit", "P&L$", "P&L%", "Signal", "Reason", "Closed"], "Closed Positions"),
             ("orders-table", ["ID", "Symbol", "Type", "Side", "Qty", "Filled", "Status", "Price", "Avg Fill"], "Orders"),
@@ -156,16 +159,17 @@ class TraderTui(App[None]):
             "left": self.query_one("#left-panel"), "right": self.query_one("#right-panel"),
             "market": self.query_one("#market-table"), "positions": self.query_one("#positions-table"),
             "closed": self.query_one("#closed-table"), "orders": self.query_one("#orders-table"),
+            "logs": self.query_one("#logs-panel"),
         }
         for w in widgets.values(): w.display = True
         if not self._focus: return
         widgets["status"].display = False
         hide = {
-            "logs": ["left"],
-            "market": ["right", "positions"],
-            "positions": ["right", "market"],
-            "closed": ["left", "orders"],
-            "orders": ["left", "closed"],
+            "logs": ["left", "positions", "closed", "orders"],
+            "market": ["right"],
+            "positions": ["left", "closed", "orders", "logs"],
+            "closed": ["left", "positions", "orders", "logs"],
+            "orders": ["left", "positions", "closed", "logs"],
         }
         for k in hide.get(self._focus, []): widgets[k].display = False
 
@@ -196,15 +200,32 @@ class TraderTui(App[None]):
             ind = self._rt.get_indicators(sym); bars = bars_map.get(sym, [])
             d = self._dir(sym, q.last)
             chg = self._pct(float((q.last - bars[0].open) / bars[0].open * 100)) if bars and bars[0].open > 0 else "--"
-            gap = self._pct(float((bars[-1].open - bars[-2].close) / bars[-2].close * 100)) if len(bars) >= 2 and bars[-2].close > 0 else "--"
+            pre30 = self._rt.premarket_high_30m_for_symbol(sym)
+            hod = self._rt.high_of_day_for_symbol(sym)
+            pre30_pct = self._pct(float((q.last - pre30) / pre30 * 100)) if pre30 > 0 else "--"
+            hod_pct = self._pct(float((q.last - hod) / hod * 100)) if hod > 0 else "--"
             rsi = ind.get("rsi")
             rsi_t = Text(f"{rsi:.0f}", style="bold red" if rsi > 70 else "bold green" if rsi < 30 else "") if rsi is not None else "--"
             atr = ind.get("atr_pct"); ema = ind.get("ema_crossover", "none")
             ema_t = Text("▲", style="bold green") if ema == "bullish" else Text("▼", style="bold red") if ema == "bearish" else "--"
-            pat, sig = "--", Text("WATCH", style="dim cyan") if sym in s.watchlist else "--"
+            sig = Text("WATCH", style="dim cyan") if sym in s.watchlist else "--"
             for p in s.positions:
-                if p.symbol == sym: pat = p.signal_type.value.split("_")[0].upper()[:6]; sig = Text("LONG", style="bold green"); break
-            mt.add_row(self._ct(sym, d), self._ct(_fmt(q.last), d), chg, _fmt(q.volume, 0), _fmt(q.spread()), gap, rsi_t, f"{atr:.1f}" if atr else "--", ema_t, pat, sig)
+                if p.symbol == sym:
+                    sig = Text("LONG", style="bold green")
+                    break
+            mt.add_row(
+                self._ct(sym, d),
+                self._ct(_fmt(q.last), d),
+                chg,
+                _fmt(q.volume, 0),
+                _fmt(q.spread()),
+                pre30_pct,
+                hod_pct,
+                rsi_t,
+                f"{atr:.1f}" if atr else "--",
+                ema_t,
+                sig,
+            )
         # Positions
         pt = self.query_one("#positions-table", DataTable); pt.clear(columns=False)
         for p in s.positions:

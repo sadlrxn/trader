@@ -53,6 +53,54 @@ def test_detects_opening_range_breakout_with_only_opening_bars() -> None:
     assert signal.signal_type == SignalType.ORB
 
 
+def test_orb_uses_only_last_30_minutes_of_premarket_high() -> None:
+    """Ignore older premarket highs outside the final 30-minute pre-open window."""
+
+    engine = StrategyEngine(Settings())
+    bars = [
+        _bar("AMD", datetime(2026, 3, 15, 12, 0, tzinfo=UTC), "9.80", "11.00", "9.75", "10.20", "15000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 10, tzinfo=UTC), "9.95", "10.00", "9.90", "9.98", "25000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "10.00", "10.05", "9.94", "10.02", "60000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "10.02", "10.08", "10.00", "10.07", "120000"),
+    ]
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.06"),
+        ask=Decimal("10.08"),
+        last=Decimal("10.07"),
+        volume=Decimal("120000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+    signal = engine.evaluate("AMD", bars, quote)
+    assert signal is not None
+    assert signal.signal_type == SignalType.ORB
+    assert signal.entry_price == Decimal("10.06")
+
+
+def test_orb_can_trigger_on_new_high_of_day_breakout() -> None:
+    """Treat a fresh HOD break as a valid intraday breakout before the cutoff."""
+
+    engine = StrategyEngine(Settings())
+    bars = [
+        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "10.00", "10.05", "9.95", "10.02", "60000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "10.02", "10.18", "10.00", "10.16", "90000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 32, tzinfo=UTC), "10.16", "10.15", "10.05", "10.08", "55000"),
+        _bar("AMD", datetime(2026, 3, 15, 13, 33, tzinfo=UTC), "10.08", "10.22", "10.07", "10.20", "130000"),
+    ]
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.20"),
+        ask=Decimal("10.22"),
+        last=Decimal("10.21"),
+        volume=Decimal("130000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+    signal = engine.evaluate("AMD", bars, quote)
+    assert signal is not None
+    assert signal.signal_type == SignalType.ORB
+    assert signal.entry_price == Decimal("10.19")
+
+
 def test_detects_bull_flag_breakout() -> None:
     """Emit a bull-flag signal after a strong pole and shallow pullback."""
 

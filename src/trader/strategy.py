@@ -15,6 +15,8 @@ _TICK = Decimal("0.01")
 _MIN_SPREAD_LIMIT = Decimal("0.05")
 _MAX_SPREAD_LIMIT = Decimal("0.10")
 _RELATIVE_SPREAD_LIMIT = Decimal("0.0075")
+_REGULAR_OPEN = time(9, 30)
+_PREOPEN_WINDOW_START = time(9, 0)
 
 
 class StrategyEngine:
@@ -58,25 +60,25 @@ class StrategyEngine:
         )
 
     def _detect_orb(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
-        """Detect an opening-range breakout using premarket and first-minute highs."""
+        """Detect an opening-range breakout using the last 30 minutes before the open and HOD."""
 
-        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= time(9, 30)]
+        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= _REGULAR_OPEN]
         if len(regular_bars) < 2:
             return None
 
         # Ross-style ORB: wait for the first regular-hours candle to define the
-        # range, then only buy the first clean cross above the premarket / 9:30
-        # high while volume expands and the spread is still tradeable.
+        # range, then only buy the first clean cross above either the last
+        # 30-minute pre-open high or the intraday HOD while volume expands and
+        # the spread is still tradeable.
         first_bar = regular_bars[0]
         latest_bar = regular_bars[-1]
         if self._local_time(latest_bar.timestamp) > self._settings.trader_entry_cutoff:
             return None
 
-        premarket_high = max(
-            (bar.high for bar in bars if self._local_time(bar.timestamp) < time(9, 30)),
-            default=first_bar.high,
-        )
-        entry_price = max(first_bar.high, premarket_high) + _TICK
+        premarket_high = self._premarket_high_30m(bars)
+        hod_before_latest = max((bar.high for bar in regular_bars[:-1]), default=first_bar.high)
+        reference_high = max(first_bar.high, premarket_high, hod_before_latest)
+        entry_price = reference_high + _TICK
         average_volume = _average_volume(regular_bars[:-1], window=20)
         volume_gate = average_volume > 0 and latest_bar.volume >= average_volume * Decimal("1.5")
         prior_high = regular_bars[-2].high
@@ -94,7 +96,7 @@ class StrategyEngine:
             stop_price=stop_price,
             target_price=target_price,
             change_during_buy=_percentage_change(entry_price, first_bar.open),
-            reason="Opening-range breakout above premarket/first-minute high.",
+            reason="Opening-range breakout above the 30-minute pre-open high or intraday HOD.",
         )
 
     def _detect_bull_flag(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
@@ -150,7 +152,7 @@ class StrategyEngine:
     def _detect_first_pullback(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
         """Detect the first pullback after a strong opening move."""
 
-        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= time(9, 30)]
+        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= _REGULAR_OPEN]
         if len(regular_bars) < 4:
             return None
 
@@ -248,6 +250,18 @@ class StrategyEngine:
         """Return the bar time converted into the configured trading timezone."""
 
         return timestamp.astimezone(self._timezone).timetz().replace(tzinfo=None)
+
+    def _premarket_high_30m(self, bars: Sequence[Bar]) -> Decimal:
+        """Return the premarket high from the final 30 minutes before the open."""
+
+        candidates = [
+            bar.high
+            for bar in bars
+            if _PREOPEN_WINDOW_START <= self._local_time(bar.timestamp) < _REGULAR_OPEN
+        ]
+        if not candidates:
+            return Decimal("0")
+        return max(candidates)
 
     def _session_bars(self, bars: Sequence[Bar]) -> list[Bar]:
         """Return only bars from the same local trading date as the latest bar."""

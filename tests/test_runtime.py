@@ -311,6 +311,41 @@ def test_snapshot_status_includes_closed_positions(tmp_path) -> None:
     runtime.state_store.close()
 
 
+def test_day_trading_flatten_requests_manual_exits_near_close(tmp_path) -> None:
+    """Request exits for open positions when the configured day-trading flatten time hits."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+            "TRADER_FLATTEN_TIME": "15:55",
+        }
+    )
+    runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
+    runtime.execution.positions["AMD"] = ManagedPosition(
+        symbol="AMD",
+        quantity=100,
+        remaining_quantity=100,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.50"),
+        target_price=Decimal("11.00"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+    )
+    closed: list[str] = []
+
+    async def _close(symbol: str) -> None:
+        closed.append(symbol)
+
+    runtime.close_position = _close  # type: ignore[method-assign]
+    runtime.market_clock.now = lambda: datetime(2026, 3, 15, 15, 56, tzinfo=runtime.market_clock._timezone)  # type: ignore[method-assign]
+
+    asyncio.run(runtime._enforce_day_trading_flatten())
+
+    assert closed == ["AMD"]
+    runtime.state_store.close()
+
+
 def runtime_bar(
     symbol: str,
     timestamp: datetime,
