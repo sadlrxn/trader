@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -21,8 +22,21 @@ class StateStore:
 
         self._path = path
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._migrate_legacy_db_if_needed()
         self._connection = sqlite3.connect(self._path)
         self._initialize()
+
+    def _migrate_legacy_db_if_needed(self) -> None:
+        """Copy the legacy state database into the new default path if needed."""
+
+        if self._path.exists():
+            return
+        if self._path.name != "state.db":
+            return
+        legacy = self._path.with_name("state.sqlite3")
+        if not legacy.exists():
+            return
+        shutil.copy2(legacy, self._path)
 
     def _initialize(self) -> None:
         """Create the required persistence tables if they do not exist."""

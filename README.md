@@ -94,8 +94,8 @@ If IBKR is unreachable, the bot now fails cleanly, records the broker error in r
 
 The terminal is split into 2 columns:
 
-- left: live market, positions, and orders
-- right: bot logs
+- left: live market list
+- right: open positions, closed trades, orders, and bot logs
 
 Top summary cards show:
 
@@ -123,15 +123,20 @@ Main shortcuts:
 SQLite database:
 
 ```text
-.trader/state.sqlite3
+.trader/state.db
 ```
 
 Tables include:
 
 - `kv_store`
 - `positions`
+- `closed_positions`
 - `orders`
 - `trade_events`
+
+The position, order, closed-trade, and trade-event tables are bot-scoped audit
+records. They track only symbols and orders handled by this bot, not unrelated
+manual trades elsewhere in the account.
 
 Daily trade journal JSON:
 
@@ -168,20 +173,30 @@ Live market rows are color-coded:
 - green when the latest price moved up versus the prior refresh
 - red when the latest price moved down
 
+The market panel is sized for the live scanner list and now defaults to up to
+20 symbols. It also shows:
+
+- `PM30%`: distance from the high made in the final 30 minutes before the open
+- `HOD%`: distance from the current intraday high of day
+
 ## Trading Logic Notes
 
 - Market data comes directly from the IBKR socket client in `ibga`.
 - The bot trades only when real account equity is available from IBKR. It no longer sizes entries from a fallback balance.
+- The live trade gate also enforces the scanner profile: the symbol must still be inside the configured price band and up at least `TRADER_MIN_DAY_GAIN_PCT` on the same trading day.
 - Position size is capped by both stop-risk and max notional so tight-stop setups do not turn into broker-rejected oversized orders.
 - A first-red exit only uses completed bars, not a still-forming minute candle.
+- ORB entries now reference the final 30-minute pre-open high and intraday HOD instead of the entire premarket session.
 - ORB entries only trigger on the breakout cross instead of re-firing repeatedly after the level is already broken.
 - First-pullback entries are supported in addition to ORB, bull-flag, and flat-top breakouts.
 - Bull-flag and flat-top entries now require breakout volume confirmation.
 - The scanner owns the watchlist by default; there is no built-in static watchlist unless `TRADER_FALLBACK_SYMBOLS` is explicitly configured.
 - Fallback symbols are only a bootstrap when no live scanner symbols are available; once live momentum symbols arrive, the fallback list is discarded.
+- Broker position syncing is scoped to symbols already known to this bot, so unrelated account holdings are not shown as bot-managed trades.
 - Open positions stay subscribed even if the scanner rotates to other symbols.
 - Executed buys and sells are written to dated JSON trade journals in addition to SQLite trade events.
 - Closed trades are persisted in SQLite and shown in a dedicated closed-positions panel in the TUI.
+- Because this bot is for day trading, it now requests manual-exit style flattening for any remaining open positions at `TRADER_FLATTEN_TIME` (default `15:55` ET).
 - If broker positions and local managed positions disagree, trading is paused and the mismatch is surfaced as an error.
 
 ## Project Notes

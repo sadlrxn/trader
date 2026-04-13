@@ -165,6 +165,22 @@ class ExecutionService:
                         self.orders[stop_order.order_id] = stop_order
                         self._state_store.save_order(target_order)
                         self._state_store.save_order(stop_order)
+                        self._append_submission_event(
+                            symbol=symbol,
+                            event_type="target_submitted",
+                            order=target_order,
+                            quantity=sell_quantity,
+                            price=quote.last,
+                            note=f"stage {stage_index}",
+                        )
+                        self._append_submission_event(
+                            symbol=symbol,
+                            event_type="stop_submitted",
+                            order=stop_order,
+                            quantity=position.remaining_quantity,
+                            price=position.stop_price,
+                            note=f"stage {stage_index}",
+                        )
                         position.target_order_id = target_order.order_id
                         position.stop_order_id = stop_order.order_id
                         self._target_stage_by_order[target_order.order_id] = stage_index
@@ -181,6 +197,14 @@ class ExecutionService:
             order = await self._broker.place_exit_order(symbol, position.remaining_quantity, limit_price)
             self.orders[order.order_id] = order
             self._state_store.save_order(order)
+            self._append_submission_event(
+                symbol=symbol,
+                event_type="exit_submitted",
+                order=order,
+                quantity=position.remaining_quantity,
+                price=limit_price,
+                note="first red exit",
+            )
             logger.info("Submitted first-red exit for %s at %s", symbol, limit_price)
 
     def _next_triggered_stage(
@@ -223,6 +247,14 @@ class ExecutionService:
         )
         self.orders[replacement.order_id] = replacement
         self._state_store.save_order(replacement)
+        self._append_submission_event(
+            symbol=symbol,
+            event_type="stop_submitted",
+            order=replacement,
+            quantity=position.remaining_quantity,
+            price=stop_price,
+            note="manual or automated stop replacement",
+        )
         position.stop_price = stop_price
         position.stop_order_id = replacement.order_id
         self._state_store.save_position(position)
@@ -294,6 +326,13 @@ class ExecutionService:
 
         return sorted(self.orders.values(), key=lambda item: item.order_id)
 
+    def tracks_symbol(self, symbol: str) -> bool:
+        """Return whether the symbol belongs to this bot's own workflow."""
+
+        if symbol in self.positions or symbol in self._pending_signals:
+            return True
+        return any(order.symbol == symbol for order in self.orders.values())
+
     async def _handle_entry_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
         """Open a managed position after the entry fills."""
 
@@ -331,6 +370,14 @@ class ExecutionService:
         )
         self.orders[stop_order.order_id] = stop_order
         self._state_store.save_order(stop_order)
+        self._append_submission_event(
+            symbol=order.symbol,
+            event_type="stop_submitted",
+            order=stop_order,
+            quantity=position.remaining_quantity,
+            price=position.stop_price,
+            note="initial protective stop",
+        )
         position.stop_order_id = stop_order.order_id
         self.positions[position.symbol] = position
         self._state_store.save_position(position)
@@ -418,6 +465,14 @@ class ExecutionService:
         )
         self.orders[replacement.order_id] = replacement
         self._state_store.save_order(replacement)
+        self._append_submission_event(
+            symbol=order.symbol,
+            event_type="stop_submitted",
+            order=replacement,
+            quantity=position.remaining_quantity,
+            price=position.entry_price,
+            note="break-even stop",
+        )
         if order.status == "Filled":
             self._target_stage_by_order.pop(order.order_id, None)
             position.target_order_id = None
@@ -507,6 +562,14 @@ class ExecutionService:
         )
         self.orders[replacement.order_id] = replacement
         self._state_store.save_order(replacement)
+        self._append_submission_event(
+            symbol=position.symbol,
+            event_type="stop_submitted",
+            order=replacement,
+            quantity=position.remaining_quantity,
+            price=position.stop_price,
+            note="trailing stop conversion",
+        )
         position.stop_order_id = replacement.order_id
         self._state_store.save_position(position)
         self._trailing_converted.add(symbol)
@@ -566,6 +629,14 @@ class ExecutionService:
             emergency = await self._broker.place_exit_order(position.symbol, position.remaining_quantity, limit_price)
             self.orders[emergency.order_id] = emergency
             self._state_store.save_order(emergency)
+            self._append_submission_event(
+                symbol=position.symbol,
+                event_type="exit_submitted",
+                order=emergency,
+                quantity=position.remaining_quantity,
+                price=limit_price,
+                note="emergency exit because stop protection was missing",
+            )
             logger.warning("Protective stop missing for %s below stop; submitted emergency exit at %s", position.symbol, limit_price)
             return
         replacement = await self._sync_stop_order(
@@ -576,6 +647,14 @@ class ExecutionService:
         )
         self.orders[replacement.order_id] = replacement
         self._state_store.save_order(replacement)
+        self._append_submission_event(
+            symbol=position.symbol,
+            event_type="stop_submitted",
+            order=replacement,
+            quantity=position.remaining_quantity,
+            price=position.stop_price,
+            note="reinstalled missing protective stop",
+        )
         position.stop_order_id = replacement.order_id
         self._state_store.save_position(position)
         logger.warning("Protective stop missing for %s; reinstalled stop at %s", position.symbol, position.stop_price)
@@ -606,3 +685,27 @@ class ExecutionService:
         self._state_store.append_closed_position(closed)
         self.positions.pop(position.symbol, None)
         self._state_store.delete_position(position.symbol)
+
+    def _append_submission_event(
+        self,
+        *,
+        symbol: str,
+        event_type: str,
+        order: OrderRecord,
+        quantity: int,
+        price: Decimal,
+        note: str,
+    ) -> None:
+        """Persist an order-submission event for auditability."""
+
+        self._state_store.append_trade_event(
+            TradeEvent(
+                timestamp=datetime.now(tz=UTC),
+                symbol=symbol,
+                event_type=event_type,
+                order_id=order.order_id,
+                quantity=quantity,
+                price=price,
+                note=note,
+            )
+        )

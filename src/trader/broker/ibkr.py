@@ -485,6 +485,8 @@ class IBBrokerAdapter:
         subscription.abovePrice = float(self._settings.trader_scan_above_price)
         subscription.belowPrice = float(self._settings.trader_scan_below_price)
         subscription.aboveVolume = self._settings.trader_scan_above_volume
+        if self._settings.trader_scan_market_cap_below > 0:
+            subscription.marketCapBelow = float(self._settings.trader_scan_market_cap_below)
         req_id = self._app.next_request_id()
         self._scanner_request_id = req_id
         self._app.register_scanner(req_id)

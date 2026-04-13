@@ -199,7 +199,8 @@ class TraderTui(App[None]):
             if not q: mt.add_row(sym, *["--"] * 10); continue
             ind = self._rt.get_indicators(sym); bars = bars_map.get(sym, [])
             d = self._dir(sym, q.last)
-            chg = self._pct(float((q.last - bars[0].open) / bars[0].open * 100)) if bars and bars[0].open > 0 else "--"
+            day_change_pct = self._rt.day_change_pct_for_symbol(sym, q.last)
+            chg = self._pct(float(day_change_pct)) if bars else "--"
             pre30 = self._rt.premarket_high_30m_for_symbol(sym)
             hod = self._rt.high_of_day_for_symbol(sym)
             pre30_pct = self._pct(float((q.last - pre30) / pre30 * 100)) if pre30 > 0 else "--"

@@ -167,6 +167,10 @@ def test_execution_writes_trade_journal_and_completes_stage_on_fill(tmp_path) ->
     assert payload[0]["change_during_buy"] == 12.5
     assert payload[1]["operation"] == "sell"
     assert payload[1]["profit"] == 2.9
+    event_types = [event.event_type for event in state_store.load_trade_events(limit=20)]
+    assert "signal_submitted" in event_types
+    assert "stop_submitted" in event_types
+    assert "target_submitted" in event_types
     state_store.close()
 
 

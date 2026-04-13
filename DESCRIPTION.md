@@ -39,8 +39,10 @@ This section turns the “human” style into rules that can be coded. Where 
 3. **Require high relative volume**: target **≥ 2×** relative volume. citeturn18view1  
 4. **Catalyst check (optional but recommended)**: “hunt for catalyst (earnings/news/PR)” for gap‑and‑go style. citeturn17view1  
 
+Implementation note for this bot: after a symbol is subscribed, it is still re-checked before any entry is allowed. The active trade gate requires the name to remain inside the configured **$2–$20** band and still be up at least **10% on the day**.
+
 **How this maps to IBKR scanners:**
-- Use IBKR scanner “scanCode” like **TOP_PERC_GAIN** and apply filters like **AbovePrice**, **BelowPrice**, **AboveVolume**, **MarketCapBelow** via the scanner subscription object. citeturn0search4turn0search2  
+- Use IBKR scanner “scanCode” like **TOP_PERC_GAIN** and apply filters like **AbovePrice**, **BelowPrice**, **AboveVolume**, **MarketCapBelow** via the scanner subscription object. A practical day-trading default is a **$2–$20** price band plus top-gainer ranking. citeturn0search4turn0search2  
 - Note: IBKR scanners do not reliably provide “float”, so float is either (a) an external dataset, or (b) replaced with market‑cap filters as a rough proxy (less accurate). citeturn0search4turn18view1  
 
 ### Entry rules (when to buy)
@@ -54,11 +56,11 @@ From the “Gap and Go” steps:
 - At 09:30, buy the **high of the first 1‑minute candle** (opening range breakout) with a stop at the **low of that candle**, or buy the **pre‑market high**. citeturn17view1  
 
 **Codable version (precise):**
-- Compute `premkt_high` using 1‑minute bars from 04:00–09:29 (include outside RTH data). citeturn7search14turn8view0  
+- Compute `premkt_high` using the **final 30 minutes before the open** (09:00–09:29 US/Eastern) rather than the whole premarket session, then also track the intraday **high of day (HOD)** once regular hours begin. citeturn7search14turn8view0  
 - After the first regular‑hours minute closes (09:31 time stamp):
   - Let `orb_high = high(09:30–09:31 bar)`  
   - Let `orb_low  = low(09:30–09:31 bar)`  
-- Place a **buy stop‑limit** (or marketable limit, see order table) at `entry_level = max(premkt_high, orb_high) + buffer` where `buffer = $0.01` (or one tick [minimum price step]).  
+- Place a **buy stop‑limit** (or marketable limit, see order table) at `entry_level = max(premkt_high, orb_high, HOD_before_breakout) + buffer` where `buffer = $0.01` (or one tick [minimum price step]).  
 - A trade is “valid” only if:
   - last price crosses `entry_level`, and
   - the current minute volume is above a threshold (e.g., `minute_vol ≥ 1.5 × avg_minute_vol_20`), and
@@ -146,6 +148,7 @@ These are not “best”, they are **starting assumptions** for engineering and 
 | Max concurrent “risk” | **≤ 2R total** | Even with 3 positions, total worst‑case loss is controlled. |
 | Hard max shares per trade | **computed** | Prevents huge share counts on tiny stop distances. |
 | Trade time cut‑off | stop new entries after **11:30** | entity["people","Ross Cameron","momentum day trader"] says midday is choppy and he changes behaviour after ~11:30. citeturn18view1 |
+| End-of-day flatten | request exits by **15:55** | Enforces day-trading behaviour so positions are not intentionally carried overnight. |
 
 ### Position size formula (code‑friendly)
 
@@ -166,6 +169,7 @@ The bot must disable itself when any happens:
 1. **Daily realised PnL ≤ -MaxDailyLoss** → cancel all orders, flatten positions, and disable new orders until manual reset.  
 2. **Connectivity broken** (no heartbeat from TWS/IBG) → cancel all working orders (if possible) and stop.  
 3. **Unexpected exposure** (position exists without known parent order) → stop; this indicates an accounting bug.
+4. **Position survives into a new trading day** → immediately request a flatten, because the bot is intraday only.
 
 ## Data and how to get it with IBKR
 

@@ -8,7 +8,7 @@ from decimal import Decimal
 import asyncio
 
 from trader.config import Settings
-from trader.models import Bar, ClosedPosition, ManagedPosition, Quote, RiskDecision, SignalDecision, SignalType
+from trader.models import Bar, BrokerEvent, BrokerEventKind, ClosedPosition, ManagedPosition, Quote, RiskDecision, SignalDecision, SignalType
 from trader.runtime import TradingRuntime
 
 
@@ -69,6 +69,33 @@ def test_reconcile_broker_positions_accepts_matching_state(tmp_path) -> None:
 
     assert runtime.status.trading_enabled is True
     assert runtime.status.last_error == ""
+    runtime.state_store.close()
+
+
+def test_external_account_positions_are_ignored_when_not_bot_managed(tmp_path) -> None:
+    """Ignore unrelated account positions that were not opened by this bot."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+        }
+    )
+    runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
+
+    asyncio.run(
+        runtime._handle_broker_event(
+            BrokerEvent(
+                kind=BrokerEventKind.POSITION,
+                timestamp=datetime.now(tz=UTC),
+                symbol="AAPL",
+                position_quantity=Decimal("50"),
+            )
+        )
+    )
+
+    assert "AAPL" not in runtime._broker_positions
+    assert "AAPL" not in runtime.status.market_data_symbols
     runtime.state_store.close()
 
 
@@ -252,6 +279,52 @@ def test_evaluate_signal_uses_live_market_phase_instead_of_stale_flag(tmp_path) 
     runtime.state_store.close()
 
 
+def test_evaluate_signal_blocks_symbols_below_day_gain_threshold(tmp_path) -> None:
+    """Do not trade symbols that fail the configured same-day gain filter."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+            "TRADER_MIN_DAY_GAIN_PCT": "10",
+        }
+    )
+    runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
+    runtime.status.equity = Decimal("10000")
+    runtime.market_phase = lambda: "open"  # type: ignore[method-assign]
+    runtime.bars["AMD"] = [
+        runtime_bar(
+            symbol="AMD",
+            timestamp=datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            open_price="10.00",
+            high_price="10.05",
+            low_price="9.95",
+            close_price="10.02",
+            volume="50000",
+        )
+    ]
+    runtime.quotes["AMD"] = Quote(
+        symbol="AMD",
+        bid=Decimal("10.39"),
+        ask=Decimal("10.41"),
+        last=Decimal("10.40"),
+        volume=Decimal("120000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+    called = {"evaluate": 0}
+
+    def _evaluate(**kwargs):  # noqa: ANN001
+        called["evaluate"] += 1
+        return None
+
+    runtime.strategy.evaluate = _evaluate  # type: ignore[method-assign]
+
+    asyncio.run(runtime._evaluate_signal("AMD"))
+
+    assert called["evaluate"] == 0
+    runtime.state_store.close()
+
+
 def test_upsert_bar_retains_enough_history_for_premarket_setups(tmp_path) -> None:
     """Keep a large enough minute window to preserve premarket context."""
 
@@ -277,6 +350,43 @@ def test_upsert_bar_retains_enough_history_for_premarket_setups(tmp_path) -> Non
         )
 
     assert len(runtime.bars["AMD"]) == 500
+    runtime.state_store.close()
+
+
+def test_day_change_pct_uses_only_current_trading_day(tmp_path) -> None:
+    """Ignore older retained bars when computing same-day market-panel change."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+        }
+    )
+    runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
+    runtime.bars["AMD"] = [
+        runtime_bar(
+            symbol="AMD",
+            timestamp=datetime(2026, 3, 14, 19, 55, tzinfo=UTC),
+            open_price="8.00",
+            high_price="8.20",
+            low_price="7.90",
+            close_price="8.10",
+            volume="10000",
+        ),
+        runtime_bar(
+            symbol="AMD",
+            timestamp=datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            open_price="10.00",
+            high_price="10.10",
+            low_price="9.95",
+            close_price="10.05",
+            volume="10000",
+        ),
+    ]
+
+    change_pct = runtime.day_change_pct_for_symbol("AMD", Decimal("11.00"))
+
+    assert change_pct == Decimal("10")
     runtime.state_store.close()
 
 
@@ -341,6 +451,40 @@ def test_day_trading_flatten_requests_manual_exits_near_close(tmp_path) -> None:
     runtime.market_clock.now = lambda: datetime(2026, 3, 15, 15, 56, tzinfo=runtime.market_clock._timezone)  # type: ignore[method-assign]
 
     asyncio.run(runtime._enforce_day_trading_flatten())
+
+    assert closed == ["AMD"]
+    runtime.state_store.close()
+
+
+def test_overnight_positions_are_flattened_on_new_trading_day(tmp_path) -> None:
+    """Flatten any carried position that survives into the next day."""
+
+    settings = Settings.model_validate(
+        {
+            "TRADER_STATE_DB": str(tmp_path / "state.sqlite3"),
+            "TRADER_FALLBACK_SYMBOLS": "",
+        }
+    )
+    runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
+    runtime.execution.positions["AMD"] = ManagedPosition(
+        symbol="AMD",
+        quantity=100,
+        remaining_quantity=100,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.50"),
+        target_price=Decimal("11.00"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime(2026, 3, 14, 15, 0, tzinfo=UTC),
+    )
+    closed: list[str] = []
+
+    async def _close(symbol: str) -> None:
+        closed.append(symbol)
+
+    runtime.close_position = _close  # type: ignore[method-assign]
+    runtime.market_clock.now = lambda: datetime(2026, 3, 15, 9, 45, tzinfo=runtime.market_clock._timezone)  # type: ignore[method-assign]
+
+    asyncio.run(runtime._flatten_overnight_positions())
 
     assert closed == ["AMD"]
     runtime.state_store.close()

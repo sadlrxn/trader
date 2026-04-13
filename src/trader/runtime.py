@@ -225,33 +225,40 @@ class TradingRuntime:
         weighted_total = sum((bar.close * bar.volume for bar in bars), start=Decimal("0"))
         return weighted_total / volume_total
 
+    def day_change_pct_for_symbol(self, symbol: str, last_price: Decimal) -> Decimal:
+        """Return the same-day percentage move using the earliest retained bar of the day."""
+
+        bars = self._same_day_bars(symbol)
+        if not bars:
+            return Decimal("0")
+        reference_open = bars[0].open
+        if reference_open <= 0:
+            return Decimal("0")
+        return ((last_price - reference_open) / reference_open) * Decimal("100")
+
     def premarket_high_30m_for_symbol(self, symbol: str) -> Decimal:
         """Return the high from the final 30 minutes before the regular open."""
 
-        bars = self.bars.get(symbol, [])
+        bars = self._same_day_bars(symbol)
         if not bars:
             return Decimal("0")
-        latest_date = bars[-1].timestamp.astimezone(self.market_clock._timezone).date()
         candidates = [
             bar.high
             for bar in bars
-            if bar.timestamp.astimezone(self.market_clock._timezone).date() == latest_date
-            and _PREOPEN_WINDOW_START <= bar.timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None) < _REGULAR_OPEN
+            if _PREOPEN_WINDOW_START <= bar.timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None) < _REGULAR_OPEN
         ]
         return max(candidates, default=Decimal("0"))
 
     def high_of_day_for_symbol(self, symbol: str) -> Decimal:
         """Return the current intraday regular-hours high for the symbol."""
 
-        bars = self.bars.get(symbol, [])
+        bars = self._same_day_bars(symbol)
         if not bars:
             return Decimal("0")
-        latest_date = bars[-1].timestamp.astimezone(self.market_clock._timezone).date()
         candidates = [
             bar.high
             for bar in bars
-            if bar.timestamp.astimezone(self.market_clock._timezone).date() == latest_date
-            and bar.timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None) >= _REGULAR_OPEN
+            if bar.timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None) >= _REGULAR_OPEN
         ]
         return max(candidates, default=Decimal("0"))
 
@@ -292,6 +299,8 @@ class TradingRuntime:
             self._check_drawdown(self.status.equity)
             return
         if event.kind is BrokerEventKind.POSITION:
+            if not self.execution.tracks_symbol(event.symbol) and event.symbol not in self._broker_positions:
+                return
             if event.position_quantity:
                 self._broker_positions[event.symbol] = event.position_quantity
                 await self._ensure_market_data_symbol(event.symbol)
@@ -300,6 +309,7 @@ class TradingRuntime:
             return
         if event.kind is BrokerEventKind.POSITION_END:
             self._reconcile_broker_positions()
+            await self._flatten_overnight_positions()
             return
         if event.kind is BrokerEventKind.SCANNER and event.scanner is not None:
             if event.scanner.symbol not in self._scanner_batch:
@@ -460,6 +470,8 @@ class TradingRuntime:
             return
         bars = self.bars.get(symbol, [])
         quote = self.quotes.get(symbol)
+        if quote is None or not self._passes_symbol_filters(symbol=symbol, quote=quote):
+            return
         signal = self.strategy.evaluate(symbol=symbol, bars=bars, quote=quote)
         if signal is None:
             return
@@ -533,6 +545,7 @@ class TradingRuntime:
         while not self._stop_event.is_set():
             await asyncio.sleep(30)
             try:
+                await self._flatten_overnight_positions()
                 await self._enforce_day_trading_flatten()
                 await self.execution.cancel_stale_entries(
                     timeout_seconds=self.settings.trader_stale_order_timeout,
@@ -591,6 +604,18 @@ class TradingRuntime:
             await self.broker.subscribe_symbol(symbol)
         self.status.market_data_symbols = desired
 
+    def _passes_symbol_filters(self, symbol: str, quote: Quote) -> bool:
+        """Return whether the symbol still matches the day-trading filter set."""
+
+        if quote.last <= 0:
+            return False
+        if quote.last < self.settings.trader_scan_above_price or quote.last > self.settings.trader_scan_below_price:
+            return False
+        day_gain_pct = self.day_change_pct_for_symbol(symbol, quote.last)
+        if day_gain_pct < self.settings.trader_min_day_gain_pct:
+            return False
+        return True
+
     async def _enforce_day_trading_flatten(self) -> None:
         """Flatten live positions near the close so the bot remains intraday only."""
 
@@ -610,6 +635,38 @@ class TradingRuntime:
             except Exception as error:
                 logger.error("DAY TRADING FLATTEN FAILED for %s: %s", symbol, error)
         self._last_flatten_request_date = now.date()
+
+    async def _flatten_overnight_positions(self) -> None:
+        """Request exits for any managed positions that survived into a new day."""
+
+        now = self.market_clock.now()
+        today = now.date()
+        overnight = [
+            position.symbol
+            for position in self.execution.snapshot_positions()
+            if position.opened_at.astimezone(self.market_clock._timezone).date() < today
+        ]
+        if not overnight:
+            return
+        logger.warning("OVERNIGHT POSITION FLATTEN: requesting exits for %s", ", ".join(overnight))
+        for symbol in overnight:
+            try:
+                await self.close_position(symbol)
+            except Exception as error:
+                logger.error("OVERNIGHT POSITION FLATTEN FAILED for %s: %s", symbol, error)
+
+    def _same_day_bars(self, symbol: str) -> list[Bar]:
+        """Return only bars from the current retained trading day for a symbol."""
+
+        bars = self.bars.get(symbol, [])
+        if not bars:
+            return []
+        latest_date = bars[-1].timestamp.astimezone(self.market_clock._timezone).date()
+        return [
+            bar
+            for bar in bars
+            if bar.timestamp.astimezone(self.market_clock._timezone).date() == latest_date
+        ]
 
     async def _load_daily_watchlist(self) -> None:
         """Load the saved daily watchlist and subscribe it before the new scanner pass completes."""
