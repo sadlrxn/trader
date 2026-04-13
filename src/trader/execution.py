@@ -37,7 +37,7 @@ class ExecutionService:
         self,
         broker: IBBrokerAdapter,
         state_store: StateStore,
-        partial_stages_config: str = "1:0.50,2:0.50",
+        partial_stages_config: str = "2:0.50,3:0.50",
         broker_positions: dict[str, Decimal] | None = None,
         trade_journal: TradeJournal | None = None,
     ) -> None:

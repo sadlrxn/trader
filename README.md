@@ -185,6 +185,7 @@ The market panel is sized for the live scanner list and now defaults to up to
 - The bot trades only when real account equity is available from IBKR. It no longer sizes entries from a fallback balance.
 - The live trade gate also enforces the scanner profile: the symbol must still be inside the configured price band and up at least `TRADER_MIN_DAY_GAIN_PCT` on the same trading day.
 - Position size is capped by both stop-risk and max notional so tight-stop setups do not turn into broker-rejected oversized orders.
+- Partial profit-taking now starts at a true `2R` move and only scales out further after that, which avoids the small-winner / bigger-loser profile Ross warns about.
 - A first-red exit only uses completed bars, not a still-forming minute candle.
 - ORB entries now reference the final 30-minute pre-open high and intraday HOD instead of the entire premarket session.
 - ORB entries only trigger on the breakout cross instead of re-firing repeatedly after the level is already broken.

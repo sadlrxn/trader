@@ -134,9 +134,9 @@ def test_execution_writes_trade_journal_and_completes_stage_on_fill(tmp_path) ->
     position = service.positions["AMD"]
     quote = Quote(
         symbol="AMD",
-        bid=Decimal("10.59"),
-        ask=Decimal("10.61"),
-        last=Decimal("10.60"),
+        bid=Decimal("11.09"),
+        ask=Decimal("11.11"),
+        last=Decimal("11.10"),
         volume=Decimal("100000"),
         updated_at=datetime.now(tz=UTC),
     )
@@ -151,12 +151,12 @@ def test_execution_writes_trade_journal_and_completes_stage_on_fill(tmp_path) ->
         update={
             "status": "Filled",
             "filled_quantity": Decimal("5"),
-            "avg_fill_price": Decimal("10.60"),
+            "avg_fill_price": Decimal("11.10"),
         }
     )
     pnl_delta = asyncio.run(service.handle_order_update(target_fill))
 
-    assert pnl_delta == Decimal("2.90")
+    assert pnl_delta == Decimal("5.40")
     assert service.positions["AMD"].completed_stages == {0}
     assert service.positions["AMD"].remaining_quantity == 5
     journal_file = next((tmp_path / "trades").glob("trades-*.json"))
@@ -166,11 +166,57 @@ def test_execution_writes_trade_journal_and_completes_stage_on_fill(tmp_path) ->
     assert payload[0]["stock"] == "AMD"
     assert payload[0]["change_during_buy"] == 12.5
     assert payload[1]["operation"] == "sell"
-    assert payload[1]["profit"] == 2.9
+    assert payload[1]["profit"] == 5.4
     event_types = [event.event_type for event in state_store.load_trade_events(limit=20)]
     assert "signal_submitted" in event_types
     assert "stop_submitted" in event_types
     assert "target_submitted" in event_types
+    state_store.close()
+
+
+def test_partial_profit_waits_for_two_r_target(tmp_path) -> None:
+    """Do not scale out before the trade reaches the minimum 2:1 target."""
+
+    broker = FakeBroker()
+    state_store = StateStore(tmp_path / "state.sqlite3")
+    service = ExecutionService(
+        broker=broker,
+        state_store=state_store,
+        broker_positions={"AMD": Decimal("10")},
+    )
+    position = ManagedPosition(
+        symbol="AMD",
+        quantity=10,
+        remaining_quantity=10,
+        entry_price=Decimal("10.00"),
+        stop_price=Decimal("9.50"),
+        target_price=Decimal("11.00"),
+        signal_type=SignalType.ORB,
+        opened_at=datetime.now(tz=UTC),
+        stop_order_id=1,
+    )
+    service.positions["AMD"] = position
+    service.orders[1] = OrderRecord(
+        order_id=1,
+        symbol="AMD",
+        purpose=OrderPurpose.STOP,
+        side="SELL",
+        quantity=10,
+        status="Submitted",
+        stop_price=Decimal("9.50"),
+    )
+    quote = Quote(
+        symbol="AMD",
+        bid=Decimal("10.59"),
+        ask=Decimal("10.61"),
+        last=Decimal("10.60"),
+        volume=Decimal("100000"),
+        updated_at=datetime.now(tz=UTC),
+    )
+
+    asyncio.run(service.manage_open_position("AMD", quote, []))
+
+    assert position.target_order_id is None
     state_store.close()
 
 

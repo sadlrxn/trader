@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     trader_max_drawdown: Decimal = Field(default=Decimal("0.05"), alias="TRADER_MAX_DRAWDOWN")
     trader_stale_order_timeout: int = Field(default=120, alias="TRADER_STALE_ORDER_TIMEOUT")
     trader_trailing_stop_atr_multiple: Decimal = Field(default=Decimal("2"), alias="TRADER_TRAILING_STOP_ATR_MULTIPLE")
-    trader_partial_stages: str = Field(default="1:0.50,2:0.50", alias="TRADER_PARTIAL_STAGES")
+    trader_partial_stages: str = Field(default="2:0.50,3:0.50", alias="TRADER_PARTIAL_STAGES")
 
     def validate_runtime_mode(self) -> None:
         """Guard against accidentally running a live session without opt-in."""

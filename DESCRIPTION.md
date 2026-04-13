@@ -109,7 +109,7 @@ From the “Gap and Go” steps:
 - Define stop distance `risk_per_share = entry - stop`.
 - Set `target1 = entry + 2 × risk_per_share` (2:1 reward:risk). citeturn18view1  
 - When last price ≥ target1:
-  - sell 50% with a limit (or marketable limit) near bid,
+  - sell part of the position only once the trade has reached that **2R** objective (do not scale out at 1R),
   - move stop on remaining shares to `entry` (break‑even).
 - If target1 not reached and a candle closes red:
   - exit full position (protect capital).
