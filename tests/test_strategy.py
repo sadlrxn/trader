@@ -15,9 +15,33 @@ def test_detects_opening_range_breakout() -> None:
 
     engine = StrategyEngine(Settings())
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 13, 0, tzinfo=UTC), "9.60", "9.90", "9.55", "9.85", "20000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "9.90", "10.00", "9.80", "9.95", "50000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "9.95", "10.05", "9.92", "10.03", "150000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 0, tzinfo=UTC),
+            "9.60",
+            "9.90",
+            "9.55",
+            "9.85",
+            "20000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            "9.90",
+            "10.00",
+            "9.80",
+            "9.95",
+            "50000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 31, tzinfo=UTC),
+            "9.95",
+            "10.05",
+            "9.92",
+            "10.03",
+            "150000",
+        ),
     ]
     quote = Quote(
         symbol="AMD",
@@ -37,8 +61,24 @@ def test_detects_opening_range_breakout_with_only_opening_bars() -> None:
 
     engine = StrategyEngine(Settings())
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "9.90", "10.00", "9.80", "9.95", "50000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "9.95", "10.05", "9.92", "10.03", "150000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            "9.90",
+            "10.00",
+            "9.80",
+            "9.95",
+            "50000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 31, tzinfo=UTC),
+            "9.95",
+            "10.05",
+            "9.92",
+            "10.03",
+            "150000",
+        ),
     ]
     quote = Quote(
         symbol="AMD",
@@ -58,10 +98,42 @@ def test_orb_uses_only_last_30_minutes_of_premarket_high() -> None:
 
     engine = StrategyEngine(Settings())
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 12, 0, tzinfo=UTC), "9.80", "11.00", "9.75", "10.20", "15000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 10, tzinfo=UTC), "9.95", "10.00", "9.90", "9.98", "25000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "10.00", "10.05", "9.94", "10.02", "60000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "10.02", "10.08", "10.00", "10.07", "120000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 12, 0, tzinfo=UTC),
+            "9.80",
+            "11.00",
+            "9.75",
+            "10.20",
+            "15000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 10, tzinfo=UTC),
+            "9.95",
+            "10.00",
+            "9.90",
+            "9.98",
+            "25000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            "10.00",
+            "10.05",
+            "9.94",
+            "10.02",
+            "60000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 31, tzinfo=UTC),
+            "10.02",
+            "10.08",
+            "10.00",
+            "10.07",
+            "120000",
+        ),
     ]
     quote = Quote(
         symbol="AMD",
@@ -82,10 +154,42 @@ def test_orb_can_trigger_on_new_high_of_day_breakout() -> None:
 
     engine = StrategyEngine(Settings())
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "10.00", "10.05", "9.95", "10.02", "60000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "10.02", "10.18", "10.00", "10.16", "90000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 32, tzinfo=UTC), "10.16", "10.15", "10.05", "10.08", "55000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 33, tzinfo=UTC), "10.08", "10.22", "10.07", "10.20", "130000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            "10.00",
+            "10.05",
+            "9.95",
+            "10.02",
+            "60000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 31, tzinfo=UTC),
+            "10.02",
+            "10.18",
+            "10.00",
+            "10.16",
+            "90000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 32, tzinfo=UTC),
+            "10.16",
+            "10.15",
+            "10.05",
+            "10.08",
+            "55000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 33, tzinfo=UTC),
+            "10.08",
+            "10.22",
+            "10.07",
+            "10.20",
+            "130000",
+        ),
     ]
     quote = Quote(
         symbol="AMD",
@@ -138,11 +242,51 @@ def test_detects_first_pullback_breakout() -> None:
 
     engine = StrategyEngine(Settings())
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "10.00", "10.25", "9.99", "10.22", "100000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "10.22", "10.55", "10.20", "10.50", "125000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 32, tzinfo=UTC), "10.50", "10.75", "10.48", "10.70", "135000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 33, tzinfo=UTC), "10.70", "10.72", "10.50", "10.56", "80000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 34, tzinfo=UTC), "10.56", "10.80", "10.55", "10.77", "120000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            "10.00",
+            "10.25",
+            "9.99",
+            "10.22",
+            "100000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 31, tzinfo=UTC),
+            "10.22",
+            "10.55",
+            "10.20",
+            "10.50",
+            "125000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 32, tzinfo=UTC),
+            "10.50",
+            "10.75",
+            "10.48",
+            "10.70",
+            "135000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 33, tzinfo=UTC),
+            "10.70",
+            "10.72",
+            "10.50",
+            "10.56",
+            "80000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 34, tzinfo=UTC),
+            "10.56",
+            "10.80",
+            "10.55",
+            "10.77",
+            "120000",
+        ),
     ]
     quote = Quote(
         symbol="AMD",
@@ -161,18 +305,46 @@ def test_first_red_exit_only_applies_before_target_fill() -> None:
     """Exit on the first red candle only before the first target fills."""
 
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 14, 0, tzinfo=UTC), "10.00", "10.10", "9.95", "10.08", "50000"),
-        _bar("AMD", datetime(2026, 3, 15, 14, 1, tzinfo=UTC), "10.08", "10.12", "10.00", "10.01", "45000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 14, 0, tzinfo=UTC),
+            "10.00",
+            "10.10",
+            "9.95",
+            "10.08",
+            "50000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 14, 1, tzinfo=UTC),
+            "10.08",
+            "10.12",
+            "10.00",
+            "10.01",
+            "45000",
+        ),
     ]
-    assert should_exit_on_first_red(bars[0].timestamp, bars, target_filled=False) is True
-    assert should_exit_on_first_red(bars[0].timestamp, bars, target_filled=True) is False
+    assert (
+        should_exit_on_first_red(bars[0].timestamp, bars, target_filled=False) is True
+    )
+    assert (
+        should_exit_on_first_red(bars[0].timestamp, bars, target_filled=True) is False
+    )
 
 
 def test_first_red_exit_ignores_incomplete_latest_bar() -> None:
     """Do not exit on a still-forming red candle."""
 
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 14, 0, tzinfo=UTC), "10.00", "10.10", "9.95", "10.08", "50000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 14, 0, tzinfo=UTC),
+            "10.00",
+            "10.10",
+            "9.95",
+            "10.08",
+            "50000",
+        ),
         _bar(
             "AMD",
             datetime(2026, 3, 15, 14, 1, tzinfo=UTC),
@@ -184,7 +356,9 @@ def test_first_red_exit_ignores_incomplete_latest_bar() -> None:
             is_complete=False,
         ),
     ]
-    assert should_exit_on_first_red(bars[0].timestamp, bars, target_filled=False) is False
+    assert (
+        should_exit_on_first_red(bars[0].timestamp, bars, target_filled=False) is False
+    )
 
 
 def test_orb_only_triggers_on_initial_breakout_cross() -> None:
@@ -192,10 +366,42 @@ def test_orb_only_triggers_on_initial_breakout_cross() -> None:
 
     engine = StrategyEngine(Settings())
     bars = [
-        _bar("AMD", datetime(2026, 3, 15, 13, 0, tzinfo=UTC), "9.60", "9.90", "9.55", "9.85", "20000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 30, tzinfo=UTC), "9.90", "10.00", "9.80", "9.95", "50000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 31, tzinfo=UTC), "9.95", "10.05", "9.92", "10.03", "150000"),
-        _bar("AMD", datetime(2026, 3, 15, 13, 32, tzinfo=UTC), "10.03", "10.08", "10.00", "10.06", "170000"),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 0, tzinfo=UTC),
+            "9.60",
+            "9.90",
+            "9.55",
+            "9.85",
+            "20000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 30, tzinfo=UTC),
+            "9.90",
+            "10.00",
+            "9.80",
+            "9.95",
+            "50000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 31, tzinfo=UTC),
+            "9.95",
+            "10.05",
+            "9.92",
+            "10.03",
+            "150000",
+        ),
+        _bar(
+            "AMD",
+            datetime(2026, 3, 15, 13, 32, tzinfo=UTC),
+            "10.03",
+            "10.08",
+            "10.00",
+            "10.06",
+            "170000",
+        ),
     ]
     quote = Quote(
         symbol="AMD",

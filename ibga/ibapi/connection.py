@@ -37,14 +37,22 @@ class Connection:
         except socket.error:
             if self.wrapper:
                 self.wrapper.error(
-                    NO_VALID_ID, currentTimeMillis(), FAIL_CREATE_SOCK.code(), FAIL_CREATE_SOCK.msg()
+                    NO_VALID_ID,
+                    currentTimeMillis(),
+                    FAIL_CREATE_SOCK.code(),
+                    FAIL_CREATE_SOCK.msg(),
                 )
 
         try:
             self.socket.connect((self.host, self.port))
         except socket.error:
             if self.wrapper:
-                self.wrapper.error(NO_VALID_ID, currentTimeMillis(), CONNECT_FAIL.code(), CONNECT_FAIL.msg())
+                self.wrapper.error(
+                    NO_VALID_ID,
+                    currentTimeMillis(),
+                    CONNECT_FAIL.code(),
+                    CONNECT_FAIL.msg(),
+                )
 
         self.socket.settimeout(1)  # non-blocking
 

@@ -9,6 +9,7 @@ Simple class for ineligibility reason
 
 from ibapi.object_implem import Object
 
+
 class IneligibilityReason(Object):
     def __init__(self, id_: str = None, description: str = None):
         self.id_ = str(id_)

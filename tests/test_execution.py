@@ -8,7 +8,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from trader.execution import ExecutionService
-from trader.models import ManagedPosition, OrderPurpose, OrderRecord, Quote, SignalDecision, SignalType
+from trader.models import (
+    ManagedPosition,
+    OrderPurpose,
+    OrderRecord,
+    Quote,
+    SignalDecision,
+    SignalType,
+)
 from trader.state import StateStore
 from trader.trade_journal import TradeJournal
 
@@ -22,20 +29,44 @@ class FakeBroker:
         self.exit_orders: list[OrderRecord] = []
         self.stop_orders: list[OrderRecord] = []
 
-    async def place_entry_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
-        return self._record(symbol, OrderPurpose.ENTRY, "BUY", quantity, limit_price=limit_price)
+    async def place_entry_order(
+        self, symbol: str, quantity: int, limit_price: Decimal
+    ) -> OrderRecord:
+        return self._record(
+            symbol, OrderPurpose.ENTRY, "BUY", quantity, limit_price=limit_price
+        )
 
-    async def place_stop_order(self, symbol: str, quantity: int, stop_price: Decimal) -> OrderRecord:
-        order = self._record(symbol, OrderPurpose.STOP, "SELL", quantity, stop_price=stop_price, status="Submitted")
+    async def place_stop_order(
+        self, symbol: str, quantity: int, stop_price: Decimal
+    ) -> OrderRecord:
+        order = self._record(
+            symbol,
+            OrderPurpose.STOP,
+            "SELL",
+            quantity,
+            stop_price=stop_price,
+            status="Submitted",
+        )
         self.stop_orders.append(order)
         return order
 
     async def replace_stop_order(
-        self, symbol: str, quantity: int, stop_price: Decimal, old_order_id: int | None,
+        self,
+        symbol: str,
+        quantity: int,
+        stop_price: Decimal,
+        old_order_id: int | None,
     ) -> OrderRecord:
         if old_order_id is not None:
             self.cancelled_orders.append(old_order_id)
-        order = self._record(symbol, OrderPurpose.STOP, "SELL", quantity, stop_price=stop_price, status="Submitted")
+        order = self._record(
+            symbol,
+            OrderPurpose.STOP,
+            "SELL",
+            quantity,
+            stop_price=stop_price,
+            status="Submitted",
+        )
         self.stop_orders.append(order)
         return order
 
@@ -50,16 +81,41 @@ class FakeBroker:
     ) -> tuple[OrderRecord, OrderRecord]:
         del oca_group
         return (
-            self._record(symbol, OrderPurpose.TARGET, "SELL", target_quantity, limit_price=target_price, status="Submitted"),
-            self._record(symbol, OrderPurpose.STOP, "SELL", stop_quantity, stop_price=stop_price, status="Submitted"),
+            self._record(
+                symbol,
+                OrderPurpose.TARGET,
+                "SELL",
+                target_quantity,
+                limit_price=target_price,
+                status="Submitted",
+            ),
+            self._record(
+                symbol,
+                OrderPurpose.STOP,
+                "SELL",
+                stop_quantity,
+                stop_price=stop_price,
+                status="Submitted",
+            ),
         )
 
-    async def place_exit_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
-        order = self._record(symbol, OrderPurpose.EXIT, "SELL", quantity, limit_price=limit_price, status="Submitted")
+    async def place_exit_order(
+        self, symbol: str, quantity: int, limit_price: Decimal
+    ) -> OrderRecord:
+        order = self._record(
+            symbol,
+            OrderPurpose.EXIT,
+            "SELL",
+            quantity,
+            limit_price=limit_price,
+            status="Submitted",
+        )
         self.exit_orders.append(order)
         return order
 
-    async def place_trailing_stop(self, symbol: str, quantity: int, trail_amount: float) -> OrderRecord:
+    async def place_trailing_stop(
+        self, symbol: str, quantity: int, trail_amount: float
+    ) -> OrderRecord:
         return self._record(
             symbol,
             OrderPurpose.STOP,
@@ -167,7 +223,9 @@ def test_execution_writes_trade_journal_and_completes_stage_on_fill(tmp_path) ->
     assert payload[0]["change_during_buy"] == 12.5
     assert payload[1]["operation"] == "sell"
     assert payload[1]["profit"] == 5.4
-    event_types = [event.event_type for event in state_store.load_trade_events(limit=20)]
+    event_types = [
+        event.event_type for event in state_store.load_trade_events(limit=20)
+    ]
     assert "signal_submitted" in event_types
     assert "stop_submitted" in event_types
     assert "target_submitted" in event_types

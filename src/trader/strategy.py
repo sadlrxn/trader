@@ -32,7 +32,9 @@ class StrategyEngine:
         self._settings = settings
         self._timezone = ZoneInfo(settings.trader_timezone)
 
-    def evaluate(self, symbol: str, bars: Sequence[Bar], quote: Quote | None) -> SignalDecision | None:
+    def evaluate(
+        self, symbol: str, bars: Sequence[Bar], quote: Quote | None
+    ) -> SignalDecision | None:
         """Return the highest-priority signal for the given symbol.
 
         Args:
@@ -59,10 +61,14 @@ class StrategyEngine:
             or self._detect_flat_top(symbol=symbol, bars=ordered, quote=quote)
         )
 
-    def _detect_orb(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
+    def _detect_orb(
+        self, symbol: str, bars: Sequence[Bar], quote: Quote
+    ) -> SignalDecision | None:
         """Detect an opening-range breakout using the last 30 minutes before the open and HOD."""
 
-        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= _REGULAR_OPEN]
+        regular_bars = [
+            bar for bar in bars if self._local_time(bar.timestamp) >= _REGULAR_OPEN
+        ]
         if len(regular_bars) < 2:
             return None
 
@@ -76,18 +82,26 @@ class StrategyEngine:
             return None
 
         premarket_high = self._premarket_high_30m(bars)
-        hod_before_latest = max((bar.high for bar in regular_bars[:-1]), default=first_bar.high)
+        hod_before_latest = max(
+            (bar.high for bar in regular_bars[:-1]), default=first_bar.high
+        )
         reference_high = max(first_bar.high, premarket_high, hod_before_latest)
         entry_price = reference_high + _TICK
         average_volume = _average_volume(regular_bars[:-1], window=20)
-        volume_gate = average_volume > 0 and latest_bar.volume >= average_volume * Decimal("1.5")
+        volume_gate = (
+            average_volume > 0 and latest_bar.volume >= average_volume * Decimal("1.5")
+        )
         prior_high = regular_bars[-2].high
-        crossed = prior_high < entry_price and (latest_bar.high >= entry_price or quote.last >= entry_price)
+        crossed = prior_high < entry_price and (
+            latest_bar.high >= entry_price or quote.last >= entry_price
+        )
         if not volume_gate or not crossed:
             return None
 
         stop_price = first_bar.low - _TICK
-        target_price = entry_price + ((entry_price - stop_price) * self._settings.trader_target_r_multiple)
+        target_price = entry_price + (
+            (entry_price - stop_price) * self._settings.trader_target_r_multiple
+        )
         return SignalDecision(
             symbol=symbol,
             signal_type=SignalType.ORB,
@@ -99,7 +113,9 @@ class StrategyEngine:
             reason="Opening-range breakout above the 30-minute pre-open high or intraday HOD.",
         )
 
-    def _detect_bull_flag(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
+    def _detect_bull_flag(
+        self, symbol: str, bars: Sequence[Bar], quote: Quote
+    ) -> SignalDecision | None:
         """Detect a bull-flag breakout with a bounded pullback."""
 
         if len(bars) < 8:
@@ -134,10 +150,15 @@ class StrategyEngine:
         if pullback[-1].high < trigger and quote.last < trigger:
             return None
         average_pullback_volume = _average_volume(pullback[:-1] or pullback, window=3)
-        if average_pullback_volume > 0 and pullback[-1].volume < average_pullback_volume:
+        if (
+            average_pullback_volume > 0
+            and pullback[-1].volume < average_pullback_volume
+        ):
             return None
 
-        target_price = trigger + ((trigger - (pullback_low - _TICK)) * self._settings.trader_target_r_multiple)
+        target_price = trigger + (
+            (trigger - (pullback_low - _TICK)) * self._settings.trader_target_r_multiple
+        )
         return SignalDecision(
             symbol=symbol,
             signal_type=SignalType.BULL_FLAG,
@@ -149,10 +170,14 @@ class StrategyEngine:
             reason="Bull-flag breakout after a controlled pullback.",
         )
 
-    def _detect_first_pullback(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
+    def _detect_first_pullback(
+        self, symbol: str, bars: Sequence[Bar], quote: Quote
+    ) -> SignalDecision | None:
         """Detect the first pullback after a strong opening move."""
 
-        regular_bars = [bar for bar in bars if self._local_time(bar.timestamp) >= _REGULAR_OPEN]
+        regular_bars = [
+            bar for bar in bars if self._local_time(bar.timestamp) >= _REGULAR_OPEN
+        ]
         if len(regular_bars) < 4:
             return None
 
@@ -167,7 +192,7 @@ class StrategyEngine:
             if len(regular_bars) < pullback_length + 3:
                 continue
             latest_bar = regular_bars[-1]
-            pullback = list(regular_bars[-(pullback_length + 1):-1])
+            pullback = list(regular_bars[-(pullback_length + 1) : -1])
             pole = list(regular_bars[: -(pullback_length + 1)])
             if len(pole) < 2:
                 continue
@@ -178,7 +203,9 @@ class StrategyEngine:
             pole_gain = (pole_high - pole_start) / pole_start
             if pole_gain < Decimal("0.05"):
                 continue
-            if not all(bar.is_red() or bar.close <= bar.open + _TICK for bar in pullback):
+            if not all(
+                bar.is_red() or bar.close <= bar.open + _TICK for bar in pullback
+            ):
                 continue
 
             pullback_low = min(bar.low for bar in pullback)
@@ -189,11 +216,16 @@ class StrategyEngine:
             if latest_bar.high < trigger and quote.last < trigger:
                 continue
             average_pullback_volume = _average_volume(pullback, window=3)
-            if average_pullback_volume > 0 and latest_bar.volume < average_pullback_volume:
+            if (
+                average_pullback_volume > 0
+                and latest_bar.volume < average_pullback_volume
+            ):
                 continue
 
             stop_price = pullback_low - _TICK
-            target_price = trigger + ((trigger - stop_price) * self._settings.trader_target_r_multiple)
+            target_price = trigger + (
+                (trigger - stop_price) * self._settings.trader_target_r_multiple
+            )
             return SignalDecision(
                 symbol=symbol,
                 signal_type=SignalType.FIRST_PULLBACK,
@@ -206,7 +238,9 @@ class StrategyEngine:
             )
         return None
 
-    def _detect_flat_top(self, symbol: str, bars: Sequence[Bar], quote: Quote) -> SignalDecision | None:
+    def _detect_flat_top(
+        self, symbol: str, bars: Sequence[Bar], quote: Quote
+    ) -> SignalDecision | None:
         """Detect a flat-top breakout with repeated resistance tests."""
 
         if len(bars) < 10:
@@ -218,7 +252,9 @@ class StrategyEngine:
         window = list(bars[-10:])
         highs = [bar.high for bar in window]
         resistance = max(highs)
-        matching_highs = [high for high in highs if abs(high - resistance) <= Decimal("0.02")]
+        matching_highs = [
+            high for high in highs if abs(high - resistance) <= Decimal("0.02")
+        ]
         if len(matching_highs) < 3:
             return None
 
@@ -234,7 +270,9 @@ class StrategyEngine:
             return None
 
         stop_price = min(recent_lows) - _TICK
-        target_price = trigger + ((trigger - stop_price) * self._settings.trader_target_r_multiple)
+        target_price = trigger + (
+            (trigger - stop_price) * self._settings.trader_target_r_multiple
+        )
         return SignalDecision(
             symbol=symbol,
             signal_type=SignalType.FLAT_TOP,
@@ -267,7 +305,11 @@ class StrategyEngine:
         """Return only bars from the same local trading date as the latest bar."""
 
         latest_date = bars[-1].timestamp.astimezone(self._timezone).date()
-        return [bar for bar in bars if bar.timestamp.astimezone(self._timezone).date() == latest_date]
+        return [
+            bar
+            for bar in bars
+            if bar.timestamp.astimezone(self._timezone).date() == latest_date
+        ]
 
 
 def _average_volume(bars: Sequence[Bar], window: int) -> Decimal:
@@ -276,7 +318,9 @@ def _average_volume(bars: Sequence[Bar], window: int) -> Decimal:
     if not bars:
         return Decimal("0")
     trailing = list(bars[-window:])
-    return sum((bar.volume for bar in trailing), start=Decimal("0")) / Decimal(len(trailing))
+    return sum((bar.volume for bar in trailing), start=Decimal("0")) / Decimal(
+        len(trailing)
+    )
 
 
 def median_bar_range(bars: Sequence[Bar]) -> Decimal:
@@ -298,11 +342,15 @@ def _percentage_change(current: Decimal, reference: Decimal) -> Decimal:
 def _spread_limit(quote: Quote) -> Decimal:
     """Return the maximum allowed spread for fast cheap stocks."""
 
-    relative_limit = quote.last * _RELATIVE_SPREAD_LIMIT if quote.last > 0 else Decimal("0")
+    relative_limit = (
+        quote.last * _RELATIVE_SPREAD_LIMIT if quote.last > 0 else Decimal("0")
+    )
     return min(_MAX_SPREAD_LIMIT, max(_MIN_SPREAD_LIMIT, relative_limit))
 
 
-def should_exit_on_first_red(position_entry_time: datetime, bars: Sequence[Bar], target_filled: bool) -> bool:
+def should_exit_on_first_red(
+    position_entry_time: datetime, bars: Sequence[Bar], target_filled: bool
+) -> bool:
     """Return whether the latest bar should force a red-candle exit.
 
     Args:

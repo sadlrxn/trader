@@ -2,9 +2,9 @@
 Copyright (C) 2025 Interactive Brokers LLC. All rights reserved. This code is subject to the terms
  and conditions of the IB API Non-Commercial License or the IB API Commercial License, as applicable.
 """
+
 from ibapi.const import NO_VALID_ID
 from ibapi.utils import getEnumTypeFromString
-from ibapi.common import PROTOBUF_MSG_ID
 
 """
 The Decoder knows how to transform a message's payload into higher level
@@ -28,14 +28,23 @@ from ibapi.orderdecoder import OrderDecoder
 from ibapi.contract import FundDistributionPolicyIndicator
 from ibapi.contract import FundAssetType
 from ibapi.ineligibility_reason import IneligibilityReason
-from ibapi.decoder_utils import decodeContract, decodeOrder, decodeExecution, decodeOrderState
+from ibapi.decoder_utils import (
+    decodeContract,
+    decodeOrder,
+    decodeExecution,
+    decodeOrderState,
+)
 
 from ibapi.protobuf.OrderStatus_pb2 import OrderStatus as OrderStatusProto
 from ibapi.protobuf.OpenOrder_pb2 import OpenOrder as OpenOrderProto
 from ibapi.protobuf.OpenOrdersEnd_pb2 import OpenOrdersEnd as OpenOrdersEndProto
 from ibapi.protobuf.ErrorMessage_pb2 import ErrorMessage as ErrorMessageProto
-from ibapi.protobuf.ExecutionDetails_pb2 import ExecutionDetails as ExecutionDetailsProto
-from ibapi.protobuf.ExecutionDetailsEnd_pb2 import ExecutionDetailsEnd as ExecutionDetailsEndProto
+from ibapi.protobuf.ExecutionDetails_pb2 import (
+    ExecutionDetails as ExecutionDetailsProto,
+)
+from ibapi.protobuf.ExecutionDetailsEnd_pb2 import (
+    ExecutionDetailsEnd as ExecutionDetailsEndProto,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,19 +157,69 @@ class Decoder(Object):
 
         self.wrapper.orderStatusProtoBuf(orderStatusProto)
 
-        orderId = orderStatusProto.orderId if orderStatusProto.HasField('orderId') else UNSET_INTEGER
-        status = orderStatusProto.status if orderStatusProto.HasField('status') else ""
-        filled = orderStatusProto.filled if orderStatusProto.HasField('filled') else UNSET_DECIMAL
-        remaining = orderStatusProto.remaining if orderStatusProto.HasField('remaining') else UNSET_DECIMAL
-        avgFillPrice = orderStatusProto.avgFillPrice if orderStatusProto.HasField('avgFillPrice') else UNSET_DOUBLE
-        permId = orderStatusProto.permId if orderStatusProto.HasField('permId') else UNSET_LONG
-        parentId = orderStatusProto.parentId if orderStatusProto.HasField('parentId') else UNSET_INTEGER
-        lastFillPrice = orderStatusProto.lastFillPrice if orderStatusProto.HasField('lastFillPrice') else UNSET_DOUBLE
-        clientId = orderStatusProto.clientId if orderStatusProto.HasField('clientId') else UNSET_INTEGER
-        whyHeld = orderStatusProto.whyHeld if orderStatusProto.HasField('whyHeld') else ""
-        mktCapPrice = orderStatusProto.mktCapPrice if orderStatusProto.HasField('mktCapPrice') else UNSET_DOUBLE
+        orderId = (
+            orderStatusProto.orderId
+            if orderStatusProto.HasField("orderId")
+            else UNSET_INTEGER
+        )
+        status = orderStatusProto.status if orderStatusProto.HasField("status") else ""
+        filled = (
+            orderStatusProto.filled
+            if orderStatusProto.HasField("filled")
+            else UNSET_DECIMAL
+        )
+        remaining = (
+            orderStatusProto.remaining
+            if orderStatusProto.HasField("remaining")
+            else UNSET_DECIMAL
+        )
+        avgFillPrice = (
+            orderStatusProto.avgFillPrice
+            if orderStatusProto.HasField("avgFillPrice")
+            else UNSET_DOUBLE
+        )
+        permId = (
+            orderStatusProto.permId
+            if orderStatusProto.HasField("permId")
+            else UNSET_LONG
+        )
+        parentId = (
+            orderStatusProto.parentId
+            if orderStatusProto.HasField("parentId")
+            else UNSET_INTEGER
+        )
+        lastFillPrice = (
+            orderStatusProto.lastFillPrice
+            if orderStatusProto.HasField("lastFillPrice")
+            else UNSET_DOUBLE
+        )
+        clientId = (
+            orderStatusProto.clientId
+            if orderStatusProto.HasField("clientId")
+            else UNSET_INTEGER
+        )
+        whyHeld = (
+            orderStatusProto.whyHeld if orderStatusProto.HasField("whyHeld") else ""
+        )
+        mktCapPrice = (
+            orderStatusProto.mktCapPrice
+            if orderStatusProto.HasField("mktCapPrice")
+            else UNSET_DOUBLE
+        )
 
-        self.wrapper.orderStatus(orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice)
+        self.wrapper.orderStatus(
+            orderId,
+            status,
+            filled,
+            remaining,
+            avgFillPrice,
+            permId,
+            parentId,
+            lastFillPrice,
+            clientId,
+            whyHeld,
+            mktCapPrice,
+        )
 
     def processOpenOrder(self, fields):
         order = Order()
@@ -258,9 +317,7 @@ class Decoder(Object):
         OrderDecoder.decodeIncludeOvernight(self, fields)
         OrderDecoder.decodeCMETaggingFields(self, fields)
         OrderDecoder.decodeSubmitter(self, fields)
-        OrderDecoder.decodeImbalanceOnly(
-            self, fields, MIN_SERVER_VER_IMBALANCE_ONLY
-        )
+        OrderDecoder.decodeImbalanceOnly(self, fields, MIN_SERVER_VER_IMBALANCE_ONLY)
 
         self.wrapper.openOrder(order.orderId, contract, order, orderState)
 
@@ -270,24 +327,24 @@ class Decoder(Object):
 
         self.wrapper.openOrderProtoBuf(openOrderProto)
 
-        orderId = openOrderProto.orderId if openOrderProto.HasField('orderId') else 0
+        orderId = openOrderProto.orderId if openOrderProto.HasField("orderId") else 0
 
         # decode contract fields
-        if not openOrderProto.HasField('contract'):
+        if not openOrderProto.HasField("contract"):
             return
         contract = decodeContract(openOrderProto.contract)
 
         # decode order fields
-        if not openOrderProto.HasField('order'):
+        if not openOrderProto.HasField("order"):
             return
         order = decodeOrder(openOrderProto.contract, openOrderProto.order)
-        
+
         # decode order state fields
-        if not openOrderProto.HasField('orderState'):
+        if not openOrderProto.HasField("orderState"):
             return
         orderState = decodeOrderState(openOrderProto.orderState)
 
-        self.wrapper.openOrder(orderId, contract, order, orderState);
+        self.wrapper.openOrder(orderId, contract, order, orderState)
 
     def processOpenOrdersEndMsgProtoBuf(self, protobuf):
         openOrdersEndProto = OpenOrdersEndProto()
@@ -451,8 +508,12 @@ class Decoder(Object):
             contract.fundSubsequentMinimumPurchase = decode(str, fields)
             contract.fundBlueSkyStates = decode(str, fields)
             contract.fundBlueSkyTerritories = decode(str, fields)
-            contract.fundDistributionPolicyIndicator = getEnumTypeFromString(FundDistributionPolicyIndicator, decode(str, fields))
-            contract.fundAssetType = getEnumTypeFromString(FundAssetType, decode(str, fields))
+            contract.fundDistributionPolicyIndicator = getEnumTypeFromString(
+                FundDistributionPolicyIndicator, decode(str, fields)
+            )
+            contract.fundAssetType = getEnumTypeFromString(
+                FundAssetType, decode(str, fields)
+            )
 
         if self.serverVersion >= MIN_SERVER_VER_INELIGIBILITY_REASONS:
             ineligibilityReasonListCount = decode(int, fields)
@@ -645,7 +706,11 @@ class Decoder(Object):
 
         self.wrapper.executionDetailsEndProtoBuf(executionDetailsEndProto)
 
-        reqId = executionDetailsEndProto.reqId if executionDetailsEndProto.HasField('reqId') else 0
+        reqId = (
+            executionDetailsEndProto.reqId
+            if executionDetailsEndProto.HasField("reqId")
+            else 0
+        )
 
         self.wrapper.execDetailsEnd(reqId)
 
@@ -655,15 +720,19 @@ class Decoder(Object):
 
         self.wrapper.executionDetailsProtoBuf(executionDetailsProto)
 
-        reqId = executionDetailsProto.reqId if executionDetailsProto.HasField('reqId') else 0
+        reqId = (
+            executionDetailsProto.reqId
+            if executionDetailsProto.HasField("reqId")
+            else 0
+        )
 
         # decode contract fields
-        if not executionDetailsProto.HasField('contract'):
+        if not executionDetailsProto.HasField("contract"):
             return
         contract = decodeContract(executionDetailsProto.contract)
 
         # decode execution fields
-        if not executionDetailsProto.HasField('execution'):
+        if not executionDetailsProto.HasField("execution"):
             return
         execution = decodeExecution(executionDetailsProto.execution)
 
@@ -674,7 +743,7 @@ class Decoder(Object):
             decode(int, fields)
 
         reqId = decode(int, fields)
-        
+
         if self.serverVersion < MIN_SERVER_VER_HISTORICAL_DATA_END:
             startDateStr = decode(str, fields)  # ver 2 field
             endDateStr = decode(str, fields)  # ver 2 field
@@ -702,12 +771,11 @@ class Decoder(Object):
             # send end of dataset marker
             self.wrapper.historicalDataEnd(reqId, startDateStr, endDateStr)
 
-
     def processHistoricalDataEndMsg(self, fields):
         reqId = decode(int, fields)
         startDateStr = decode(str, fields)
         endDateStr = decode(str, fields)
-        
+
         self.wrapper.historicalDataEnd(reqId, startDateStr, endDateStr)
 
     def processHistoricalDataUpdateMsg(self, fields):
@@ -1448,7 +1516,9 @@ class Decoder(Object):
         if self.serverVersion >= MIN_SERVER_VER_ERROR_TIME:
             errorTime = decode(int, fields)
 
-        self.wrapper.error(reqId, errorTime, errorCode, errorString, advancedOrderRejectJson)
+        self.wrapper.error(
+            reqId, errorTime, errorCode, errorString, advancedOrderRejectJson
+        )
 
     def processErrorMsgProtoBuf(self, protobuf):
         errorMessageProto = ErrorMessageProto()
@@ -1456,13 +1526,29 @@ class Decoder(Object):
 
         self.wrapper.errorProtoBuf(errorMessageProto)
 
-        reqId = errorMessageProto.id if errorMessageProto.HasField('id') else 0
-        errorCode = errorMessageProto.errorCode if errorMessageProto.HasField('errorCode') else 0
-        errorMsg = errorMessageProto.errorMsg if errorMessageProto.HasField('errorMsg') else ""
-        advancedOrderRejectJson = errorMessageProto.advancedOrderRejectJson if errorMessageProto.HasField('advancedOrderRejectJson') else ""
-        errorTime = errorMessageProto.errorTime if errorMessageProto.HasField('errorTime') else 0
+        reqId = errorMessageProto.id if errorMessageProto.HasField("id") else 0
+        errorCode = (
+            errorMessageProto.errorCode
+            if errorMessageProto.HasField("errorCode")
+            else 0
+        )
+        errorMsg = (
+            errorMessageProto.errorMsg if errorMessageProto.HasField("errorMsg") else ""
+        )
+        advancedOrderRejectJson = (
+            errorMessageProto.advancedOrderRejectJson
+            if errorMessageProto.HasField("advancedOrderRejectJson")
+            else ""
+        )
+        errorTime = (
+            errorMessageProto.errorTime
+            if errorMessageProto.HasField("errorTime")
+            else 0
+        )
 
-        self.wrapper.error(reqId, errorTime, errorCode, errorMsg, advancedOrderRejectJson)
+        self.wrapper.error(
+            reqId, errorTime, errorCode, errorMsg, advancedOrderRejectJson
+        )
 
     ######################################################################
 
@@ -1581,7 +1667,10 @@ class Decoder(Object):
         except BadMessage:
             theBadMsg = ",".join(fields)
             self.wrapper.error(
-                NO_VALID_ID, currentTimeMillis(), BAD_MESSAGE.code(), BAD_MESSAGE.msg() + theBadMsg
+                NO_VALID_ID,
+                currentTimeMillis(),
+                BAD_MESSAGE.code(),
+                BAD_MESSAGE.msg() + theBadMsg,
             )
             raise
 
@@ -1602,7 +1691,10 @@ class Decoder(Object):
         except BadMessage:
             theBadMsg = ",".join(protoBuf)
             self.wrapper.error(
-                NO_VALID_ID, currentTimeMillis(), BAD_MESSAGE.code(), BAD_MESSAGE.msg() + theBadMsg
+                NO_VALID_ID,
+                currentTimeMillis(),
+                BAD_MESSAGE.code(),
+                BAD_MESSAGE.msg() + theBadMsg,
             )
             raise
 
@@ -1644,7 +1736,9 @@ class Decoder(Object):
         IN.DELTA_NEUTRAL_VALIDATION: HandleInfo(proc=processDeltaNeutralValidationMsg),
         IN.TICK_SNAPSHOT_END: HandleInfo(wrap=EWrapper.tickSnapshotEnd),
         IN.MARKET_DATA_TYPE: HandleInfo(wrap=EWrapper.marketDataType),
-        IN.COMMISSION_AND_FEES_REPORT: HandleInfo(proc=processCommissionAndFeesReportMsg),
+        IN.COMMISSION_AND_FEES_REPORT: HandleInfo(
+            proc=processCommissionAndFeesReportMsg
+        ),
         IN.POSITION_DATA: HandleInfo(proc=processPositionDataMsg),
         IN.POSITION_END: HandleInfo(wrap=EWrapper.positionEnd),
         IN.ACCOUNT_SUMMARY: HandleInfo(wrap=EWrapper.accountSummary),

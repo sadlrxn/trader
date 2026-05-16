@@ -8,7 +8,15 @@ from decimal import Decimal
 from uuid import uuid4
 
 from trader.broker.ibkr import IBBrokerAdapter
-from trader.models import ClosedPosition, ManagedPosition, OrderPurpose, OrderRecord, Quote, SignalDecision, TradeEvent
+from trader.models import (
+    ClosedPosition,
+    ManagedPosition,
+    OrderPurpose,
+    OrderRecord,
+    Quote,
+    SignalDecision,
+    TradeEvent,
+)
 from trader.state import StateStore
 from trader.strategy import should_exit_on_first_red
 from trader.trade_journal import NullTradeJournal, TradeJournal
@@ -59,7 +67,9 @@ class ExecutionService:
         self.positions: dict[str, ManagedPosition] = {
             position.symbol: position for position in self._state_store.load_positions()
         }
-        self.closed_positions: list[ClosedPosition] = self._state_store.load_closed_positions()
+        self.closed_positions: list[ClosedPosition] = (
+            self._state_store.load_closed_positions()
+        )
         self.orders: dict[int, OrderRecord] = {
             order.order_id: order for order in self._state_store.load_orders()
         }
@@ -93,13 +103,21 @@ class ExecutionService:
         )
         self._pending_signals[signal.symbol] = signal
         self._order_placed_at[order.order_id] = datetime.now(tz=UTC)
-        logger.info("Submitted %s entry for %s x%d at %s", signal.signal_type, signal.symbol, quantity, signal.entry_price)
+        logger.info(
+            "Submitted %s entry for %s x%d at %s",
+            signal.signal_type,
+            signal.symbol,
+            quantity,
+            signal.entry_price,
+        )
 
     async def handle_order_update(self, order: OrderRecord) -> Decimal:
         """Apply one order status update and return realized PnL delta."""
 
         previous = self.orders.get(order.order_id)
-        previous_filled = previous.filled_quantity if previous is not None else Decimal("0")
+        previous_filled = (
+            previous.filled_quantity if previous is not None else Decimal("0")
+        )
         self.orders[order.order_id] = order
         self._state_store.save_order(order)
         if self._should_record_order_event(previous=previous, current=order):
@@ -110,11 +128,18 @@ class ExecutionService:
                     event_type=f"order_{order.status.lower()}",
                     order_id=order.order_id,
                     quantity=int(order.filled_quantity or order.quantity),
-                    price=order.avg_fill_price or order.limit_price or order.stop_price or Decimal("0"),
+                    price=order.avg_fill_price
+                    or order.limit_price
+                    or order.stop_price
+                    or Decimal("0"),
                     note=order.purpose.value,
                 )
             )
-        if order.purpose is OrderPurpose.ENTRY and order.status in {"Cancelled", "Inactive", "ApiCancelled"}:
+        if order.purpose is OrderPurpose.ENTRY and order.status in {
+            "Cancelled",
+            "Inactive",
+            "ApiCancelled",
+        }:
             self._pending_signals.pop(order.symbol, None)
             self._order_placed_at.pop(order.order_id, None)
 
@@ -145,7 +170,9 @@ class ExecutionService:
         if not self._has_open_order(symbol, OrderPurpose.TARGET):
             risk_per_share = position.entry_price - position.stop_price
             if risk_per_share > 0:
-                triggered_stage = self._next_triggered_stage(position, quote.last, risk_per_share)
+                triggered_stage = self._next_triggered_stage(
+                    position, quote.last, risk_per_share
+                )
                 if triggered_stage is not None:
                     stage_index, _, fraction = triggered_stage
                     sell_quantity = max(1, int(fraction * position.remaining_quantity))
@@ -153,7 +180,10 @@ class ExecutionService:
                     if sell_quantity > 0:
                         if position.stop_order_id is not None:
                             await self._broker.cancel_order(position.stop_order_id)
-                        target_order, stop_order = await self._broker.place_target_bracket_orders(
+                        (
+                            target_order,
+                            stop_order,
+                        ) = await self._broker.place_target_bracket_orders(
                             symbol=symbol,
                             target_quantity=sell_quantity,
                             target_price=quote.last,
@@ -187,14 +217,22 @@ class ExecutionService:
                         self._state_store.save_position(position)
                         logger.info(
                             "Stage %d triggered for %s: sell %d at %s (R=%.1f)",
-                            stage_index, symbol, sell_quantity, quote.last, float(triggered_stage[1]),
+                            stage_index,
+                            symbol,
+                            sell_quantity,
+                            quote.last,
+                            float(triggered_stage[1]),
                         )
                         return
-        if should_exit_on_first_red(position.opened_at, bars, position.target_filled) and not self._has_open_order(symbol, OrderPurpose.EXIT):
+        if should_exit_on_first_red(
+            position.opened_at, bars, position.target_filled
+        ) and not self._has_open_order(symbol, OrderPurpose.EXIT):
             if position.stop_order_id is not None:
                 await self._broker.cancel_order(position.stop_order_id)
             limit_price = max(quote.bid, quote.last - Decimal("0.02"))
-            order = await self._broker.place_exit_order(symbol, position.remaining_quantity, limit_price)
+            order = await self._broker.place_exit_order(
+                symbol, position.remaining_quantity, limit_price
+            )
             self.orders[order.order_id] = order
             self._state_store.save_order(order)
             self._append_submission_event(
@@ -208,7 +246,10 @@ class ExecutionService:
             logger.info("Submitted first-red exit for %s at %s", symbol, limit_price)
 
     def _next_triggered_stage(
-        self, position: ManagedPosition, current_price: Decimal, risk_per_share: Decimal,
+        self,
+        position: ManagedPosition,
+        current_price: Decimal,
+        risk_per_share: Decimal,
     ) -> tuple[int, Decimal, Decimal] | None:
         """Return the next incomplete stage whose R-multiple threshold is met.
 
@@ -237,7 +278,9 @@ class ExecutionService:
         if position is None:
             raise KeyError(f"No managed position for {symbol}.")
         if not self._verify_position(symbol):
-            logger.warning("Guard: broker has no position for %s, skipping stop update", symbol)
+            logger.warning(
+                "Guard: broker has no position for %s, skipping stop update", symbol
+            )
             raise KeyError(f"Broker has no position for {symbol}.")
         replacement = await self._broker.replace_stop_order(
             symbol=symbol,
@@ -272,7 +315,9 @@ class ExecutionService:
         logger.info("Updated stop for %s to %s", symbol, stop_price)
         return position
 
-    async def manual_exit_position(self, symbol: str, quote: Quote | None) -> OrderRecord:
+    async def manual_exit_position(
+        self, symbol: str, quote: Quote | None
+    ) -> OrderRecord:
         """Submit a manual exit for an open position from the operator interface."""
 
         position = self.positions.get(symbol)
@@ -283,9 +328,13 @@ class ExecutionService:
         if self._has_open_order(symbol, OrderPurpose.EXIT):
             raise ValueError(f"Manual exit already pending for {symbol}.")
 
-        if position.stop_order_id is not None and self._has_open_order(symbol, OrderPurpose.STOP):
+        if position.stop_order_id is not None and self._has_open_order(
+            symbol, OrderPurpose.STOP
+        ):
             await self._broker.cancel_order(position.stop_order_id)
-        if position.target_order_id is not None and self._has_open_order(symbol, OrderPurpose.TARGET):
+        if position.target_order_id is not None and self._has_open_order(
+            symbol, OrderPurpose.TARGET
+        ):
             await self._broker.cancel_order(position.target_order_id)
 
         if quote is not None and quote.bid > 0:
@@ -294,7 +343,9 @@ class ExecutionService:
             limit_price = max(Decimal("0.01"), quote.last - Decimal("0.02"))
         else:
             limit_price = max(Decimal("0.01"), position.stop_price)
-        order = await self._broker.place_exit_order(symbol, position.remaining_quantity, limit_price)
+        order = await self._broker.place_exit_order(
+            symbol, position.remaining_quantity, limit_price
+        )
         self.orders[order.order_id] = order
         self._state_store.save_order(order)
         self._state_store.append_trade_event(
@@ -333,7 +384,9 @@ class ExecutionService:
             return True
         return any(order.symbol == symbol for order in self.orders.values())
 
-    async def _handle_entry_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
+    async def _handle_entry_fill(
+        self, order: OrderRecord, filled_quantity: int
+    ) -> Decimal:
         """Open a managed position after the entry fills."""
 
         signal = self._pending_signals.get(order.symbol)
@@ -406,13 +459,27 @@ class ExecutionService:
         signal_entry = signal.entry_price
         if order.status == "Filled" and signal_entry and fill_price:
             slippage = float(fill_price - signal_entry)
-            slippage_pct = abs(slippage) / float(signal_entry) * 100 if float(signal_entry) > 0 else 0.0
+            slippage_pct = (
+                abs(slippage) / float(signal_entry) * 100
+                if float(signal_entry) > 0
+                else 0.0
+            )
             direction = "worse" if slippage > 0 else "better"
-            logger.info("Slippage %s: $%+.4f (%.2f%% %s)", order.symbol, slippage, slippage_pct, direction)
-        logger.info("Opened position for %s at %s", position.symbol, position.entry_price)
+            logger.info(
+                "Slippage %s: $%+.4f (%.2f%% %s)",
+                order.symbol,
+                slippage,
+                slippage_pct,
+                direction,
+            )
+        logger.info(
+            "Opened position for %s at %s", position.symbol, position.entry_price
+        )
         return Decimal("0")
 
-    async def _handle_target_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
+    async def _handle_target_fill(
+        self, order: OrderRecord, filled_quantity: int
+    ) -> Decimal:
         """Apply target-one fill logic and move the stop to break even."""
 
         position = self.positions.get(order.symbol)
@@ -422,7 +489,9 @@ class ExecutionService:
         fill_price = order.avg_fill_price or order.limit_price or position.entry_price
         pnl_delta = (fill_price - position.entry_price) * Decimal(filled_quantity)
         position.realized_pnl += pnl_delta
-        position.remaining_quantity = max(0, position.remaining_quantity - filled_quantity)
+        position.remaining_quantity = max(
+            0, position.remaining_quantity - filled_quantity
+        )
         position.target_filled = True
         stage_index = self._target_stage_by_order.get(order.order_id)
         if stage_index is not None:
@@ -482,22 +551,33 @@ class ExecutionService:
         logger.info("Locked break-even stop for %s after target fill", order.symbol)
         return pnl_delta
 
-    async def _handle_exit_fill(self, order: OrderRecord, filled_quantity: int) -> Decimal:
+    async def _handle_exit_fill(
+        self, order: OrderRecord, filled_quantity: int
+    ) -> Decimal:
         """Close part or all of a position after a stop or exit order fills."""
 
         position = self.positions.get(order.symbol)
         if position is None:
             return Decimal("0")
         event_time = datetime.now(tz=UTC)
-        fill_price = order.avg_fill_price or order.limit_price or order.stop_price or position.entry_price
+        fill_price = (
+            order.avg_fill_price
+            or order.limit_price
+            or order.stop_price
+            or position.entry_price
+        )
         pnl_delta = (fill_price - position.entry_price) * Decimal(filled_quantity)
         position.realized_pnl += pnl_delta
-        position.remaining_quantity = max(0, position.remaining_quantity - filled_quantity)
+        position.remaining_quantity = max(
+            0, position.remaining_quantity - filled_quantity
+        )
         self._state_store.append_trade_event(
             TradeEvent(
                 timestamp=event_time,
                 symbol=order.symbol,
-                event_type="sold_exit" if order.purpose is OrderPurpose.EXIT else "sold_stop",
+                event_type="sold_exit"
+                if order.purpose is OrderPurpose.EXIT
+                else "sold_stop",
                 order_id=order.order_id,
                 quantity=filled_quantity,
                 price=fill_price,
@@ -514,7 +594,10 @@ class ExecutionService:
             profit=pnl_delta,
         )
         if position.remaining_quantity == 0:
-            if position.target_order_id is not None and position.target_order_id != order.order_id:
+            if (
+                position.target_order_id is not None
+                and position.target_order_id != order.order_id
+            ):
                 await self._broker.cancel_order(position.target_order_id)
             self._close_position(
                 position=position,
@@ -551,7 +634,9 @@ class ExecutionService:
         if position is None or symbol in self._trailing_converted:
             return
         if not self._verify_position(symbol):
-            logger.warning("Guard: broker has no position for %s, skipping trailing stop", symbol)
+            logger.warning(
+                "Guard: broker has no position for %s, skipping trailing stop", symbol
+            )
             return
         if position.stop_order_id is not None:
             await self._broker.cancel_order(position.stop_order_id)
@@ -573,18 +658,24 @@ class ExecutionService:
         position.stop_order_id = replacement.order_id
         self._state_store.save_position(position)
         self._trailing_converted.add(symbol)
-        logger.info("Converted stop for %s to trailing (trail $%.2f)", symbol, trail_amount)
+        logger.info(
+            "Converted stop for %s to trailing (trail $%.2f)", symbol, trail_amount
+        )
 
     def _has_open_order(self, symbol: str, purpose: OrderPurpose) -> bool:
         """Return whether a non-final order already exists for the symbol and purpose."""
 
         final_statuses = {"Filled", "Cancelled", "Inactive", "ApiCancelled"}
         return any(
-            order.symbol == symbol and order.purpose == purpose and order.status not in final_statuses
+            order.symbol == symbol
+            and order.purpose == purpose
+            and order.status not in final_statuses
             for order in self.orders.values()
         )
 
-    def _should_record_order_event(self, previous: OrderRecord | None, current: OrderRecord) -> bool:
+    def _should_record_order_event(
+        self, previous: OrderRecord | None, current: OrderRecord
+    ) -> bool:
         """Return whether the order update changed meaningfully enough to persist."""
 
         if previous is None:
@@ -613,7 +704,9 @@ class ExecutionService:
             old_order_id=old_order_id,
         )
 
-    async def _ensure_stop_loss_protection(self, position: ManagedPosition, quote: Quote) -> None:
+    async def _ensure_stop_loss_protection(
+        self, position: ManagedPosition, quote: Quote
+    ) -> None:
         """Reinstall a stop or force an exit when a live position is unprotected.
 
         This cannot guarantee a perfect stop fill in the presence of halts, gaps,
@@ -622,11 +715,19 @@ class ExecutionService:
         already through the stop without a working stop order.
         """
 
-        if self._has_open_order(position.symbol, OrderPurpose.STOP) or self._has_open_order(position.symbol, OrderPurpose.EXIT):
+        if self._has_open_order(
+            position.symbol, OrderPurpose.STOP
+        ) or self._has_open_order(position.symbol, OrderPurpose.EXIT):
             return
-        if quote.last <= position.stop_price or (quote.bid and quote.bid <= position.stop_price):
-            limit_price = max(Decimal("0.01"), quote.bid or (quote.last - Decimal("0.02")))
-            emergency = await self._broker.place_exit_order(position.symbol, position.remaining_quantity, limit_price)
+        if quote.last <= position.stop_price or (
+            quote.bid and quote.bid <= position.stop_price
+        ):
+            limit_price = max(
+                Decimal("0.01"), quote.bid or (quote.last - Decimal("0.02"))
+            )
+            emergency = await self._broker.place_exit_order(
+                position.symbol, position.remaining_quantity, limit_price
+            )
             self.orders[emergency.order_id] = emergency
             self._state_store.save_order(emergency)
             self._append_submission_event(
@@ -637,7 +738,11 @@ class ExecutionService:
                 price=limit_price,
                 note="emergency exit because stop protection was missing",
             )
-            logger.warning("Protective stop missing for %s below stop; submitted emergency exit at %s", position.symbol, limit_price)
+            logger.warning(
+                "Protective stop missing for %s below stop; submitted emergency exit at %s",
+                position.symbol,
+                limit_price,
+            )
             return
         replacement = await self._sync_stop_order(
             symbol=position.symbol,
@@ -657,7 +762,11 @@ class ExecutionService:
         )
         position.stop_order_id = replacement.order_id
         self._state_store.save_position(position)
-        logger.warning("Protective stop missing for %s; reinstalled stop at %s", position.symbol, position.stop_price)
+        logger.warning(
+            "Protective stop missing for %s; reinstalled stop at %s",
+            position.symbol,
+            position.stop_price,
+        )
 
     def _close_position(
         self,

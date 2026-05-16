@@ -7,7 +7,13 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from trader.models import ClosedPosition, ManagedPosition, OrderRecord, RuntimeStatus, TradeEvent
+from trader.models import (
+    ClosedPosition,
+    ManagedPosition,
+    OrderRecord,
+    RuntimeStatus,
+    TradeEvent,
+)
 
 
 class StateStore:
@@ -128,14 +134,20 @@ class StateStore:
         """Load all persisted positions."""
 
         rows = self._connection.execute("SELECT payload FROM positions").fetchall()
-        return [ManagedPosition.model_validate(json.loads(payload)) for (payload,) in rows]
+        return [
+            ManagedPosition.model_validate(json.loads(payload)) for (payload,) in rows
+        ]
 
     def append_closed_position(self, position: ClosedPosition) -> None:
         """Persist one fully closed trade record."""
 
         self._connection.execute(
             "INSERT INTO closed_positions(symbol, closed_at, payload) VALUES(?, ?, ?)",
-            (position.symbol, position.closed_at.isoformat(), position.model_dump_json()),
+            (
+                position.symbol,
+                position.closed_at.isoformat(),
+                position.model_dump_json(),
+            ),
         )
         self._connection.commit()
 
@@ -146,7 +158,10 @@ class StateStore:
             "SELECT payload FROM closed_positions ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [ClosedPosition.model_validate(json.loads(payload)) for (payload,) in reversed(rows)]
+        return [
+            ClosedPosition.model_validate(json.loads(payload))
+            for (payload,) in reversed(rows)
+        ]
 
     def save_order(self, order: OrderRecord) -> None:
         """Persist one tracked order."""
@@ -160,7 +175,9 @@ class StateStore:
     def load_orders(self) -> list[OrderRecord]:
         """Load all persisted orders."""
 
-        rows = self._connection.execute("SELECT payload FROM orders ORDER BY order_id").fetchall()
+        rows = self._connection.execute(
+            "SELECT payload FROM orders ORDER BY order_id"
+        ).fetchall()
         return [OrderRecord.model_validate(json.loads(payload)) for (payload,) in rows]
 
     def append_trade_event(self, event: TradeEvent) -> None:
@@ -168,7 +185,12 @@ class StateStore:
 
         self._connection.execute(
             "INSERT INTO trade_events(timestamp, symbol, event_type, payload) VALUES(?, ?, ?, ?)",
-            (event.timestamp.isoformat(), event.symbol, event.event_type, event.model_dump_json()),
+            (
+                event.timestamp.isoformat(),
+                event.symbol,
+                event.event_type,
+                event.model_dump_json(),
+            ),
         )
         self._connection.commit()
 
@@ -179,7 +201,10 @@ class StateStore:
             "SELECT payload FROM trade_events ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [TradeEvent.model_validate(json.loads(payload)) for (payload,) in reversed(rows)]
+        return [
+            TradeEvent.model_validate(json.loads(payload))
+            for (payload,) in reversed(rows)
+        ]
 
     def close(self) -> None:
         """Close the SQLite connection."""

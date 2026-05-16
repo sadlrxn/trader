@@ -82,9 +82,7 @@ class Contract(Object):
         self.issuerId = ""
 
         # combos
-        self.comboLegsDescrip = (
-            ""
-        )  # type: str #received in open order 14 and up for all combos
+        self.comboLegsDescrip = ""  # type: str #received in open order 14 and up for all combos
         self.comboLegs = []  # type: list[ComboLeg]
         self.deltaNeutralContract = None
 
@@ -248,9 +246,10 @@ class ContractDescription(Object):
         self.contract = Contract()
         self.derivativeSecTypes = []  # type: list[str]
 
+
 class FundAssetType(Enum):
     NoneItem = ("None", "None")
-    Others = ("000", "Others"), 
+    Others = (("000", "Others"),)
     MoneyMarket = ("001", "Money Market")
     FixedIncome = ("002", "Fixed Income")
     MultiAsset = ("003", "Multi-asset")
@@ -258,6 +257,7 @@ class FundAssetType(Enum):
     Sector = ("005", "Sector")
     Guaranteed = ("006", "Guaranteed")
     Alternative = ("007", "Alternative")
+
 
 class FundDistributionPolicyIndicator(Enum):
     NoneItem = ("None", "None")

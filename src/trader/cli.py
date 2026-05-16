@@ -15,13 +15,19 @@ from trader.tui import TraderTui
 def build_parser() -> argparse.ArgumentParser:
     """Create the CLI argument parser."""
 
-    parser = argparse.ArgumentParser(prog="trader", description="IBKR momentum trading bot.")
+    parser = argparse.ArgumentParser(
+        prog="trader", description="IBKR momentum trading bot."
+    )
     subparsers = parser.add_subparsers(dest="command", required=False)
 
     bot_parser = subparsers.add_parser("bot", help="Run the trading bot.")
-    bot_parser.add_argument("--no-tui", action="store_true", help="Run without the Textual UI.")
+    bot_parser.add_argument(
+        "--no-tui", action="store_true", help="Run without the Textual UI."
+    )
 
-    subparsers.add_parser("check", help="Validate configuration and print runtime summary.")
+    subparsers.add_parser(
+        "check", help="Validate configuration and print runtime summary."
+    )
     return parser
 
 

@@ -16,13 +16,17 @@ from ibapi.errors import INVALID_SYMBOL
 
 logger = logging.getLogger(__name__)
 
+
 def make_msg_proto(msgId: int, protobufData: bytes) -> bytes:
     """adds the length prefix"""
-    byteArray = msgId.to_bytes(4, 'big') + protobufData
+    byteArray = msgId.to_bytes(4, "big") + protobufData
     msg = struct.pack(f"!I{len(byteArray)}s", len(byteArray), byteArray)
     return msg
 
-def make_msg(msgId:int | str, useRawIntMsgId: bool | None = None, text: str | None = None) -> bytes:
+
+def make_msg(
+    msgId: int | str, useRawIntMsgId: bool | None = None, text: str | None = None
+) -> bytes:
     """Add the length prefix while supporting both legacy and current call shapes."""
 
     if text is None:
@@ -30,12 +34,13 @@ def make_msg(msgId:int | str, useRawIntMsgId: bool | None = None, text: str | No
         return struct.pack(f"!I{len(payload)}s", len(payload), payload)
 
     if useRawIntMsgId:
-        payload = msgId.to_bytes(4, 'big') + str.encode(text)
+        payload = msgId.to_bytes(4, "big") + str.encode(text)
     else:
         payload = str.encode(make_field(msgId) + text)
 
     msg = struct.pack(f"!I{len(payload)}s", len(payload), payload)
     return msg
+
 
 def make_initial_msg(text: str) -> bytes:
     """adds the length prefix"""

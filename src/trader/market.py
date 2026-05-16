@@ -35,7 +35,9 @@ class MarketClock:
         timestamp = pd.Timestamp(current)
         return bool(self._calendar.is_open_on_minute(timestamp))
 
-    def market_phase(self, when: datetime | None = None, premarket_start: time | None = None) -> str:
+    def market_phase(
+        self, when: datetime | None = None, premarket_start: time | None = None
+    ) -> str:
         """Return the current market phase: open, pre-market, or closed."""
 
         current = (when or self.now()).astimezone(self._timezone)
@@ -60,7 +62,9 @@ class MarketClock:
                 return "pre-market"
         return "closed"
 
-    def market_status_text(self, when: datetime | None = None, premarket_start: time | None = None) -> str:
+    def market_status_text(
+        self, when: datetime | None = None, premarket_start: time | None = None
+    ) -> str:
         """Return a human-readable market status label."""
 
         phase = self.market_phase(when=when, premarket_start=premarket_start)

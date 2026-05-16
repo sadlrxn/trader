@@ -7,6 +7,7 @@ from ibapi.const import UNSET_INTEGER
 from ibapi.object_implem import Object
 from ibapi.utils import intMaxString
 
+
 class OrderCancel(Object):
     def __init__(self):
         self.manualOrderCancelTime = ""
@@ -15,7 +16,9 @@ class OrderCancel(Object):
 
     def __str__(self):
         s = "manualOrderCancelTime: %s, extOperator: %s, manualOrderIndicator: %s" % (
-            self.manualOrderCancelTime, self.extOperator, intMaxString(self.manualOrderIndicator)
+            self.manualOrderCancelTime,
+            self.extOperator,
+            intMaxString(self.manualOrderIndicator),
         )
 
         return s

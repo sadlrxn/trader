@@ -1,6 +1,8 @@
 """Textual terminal UI for the trading bot."""
+
 from __future__ import annotations
-import asyncio, logging
+import asyncio
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from rich.text import Text
@@ -15,10 +17,12 @@ from trader.runtime import TradingRuntime
 
 logger = logging.getLogger(__name__)
 
+
 def _c(val, label: str) -> Text:
     """Color text green/red by sign."""
     f = float(val)
     return Text(label, style="bold green" if f > 0 else "bold red" if f < 0 else "")
+
 
 def _fmt(v, p: int = 2) -> str:
     return f"{float(v):,.{p}f}"
@@ -55,7 +59,9 @@ class ClosePositionModal(ModalScreen[str | None]):
                 f"[{index}] {position.symbol}  qty={position.remaining_quantity}  "
                 f"entry={_fmt(position.entry_price)}  stop={_fmt(position.stop_price)}"
             )
-        lines.extend(["", "Press the number for a position.", "Press x or Esc to cancel."])
+        lines.extend(
+            ["", "Press the number for a position.", "Press x or Esc to cancel."]
+        )
         yield Static("\n".join(lines), id="close-dialog")
 
     def action_cancel(self) -> None:
@@ -91,11 +97,16 @@ class TraderTui(App[None]):
     Footer { background: #141c28; }
     """
     BINDINGS = [
-        Binding("q", "quit_bot", "Quit"), Binding("p", "pause_trading", "Pause"),
-        Binding("r", "resume_trading", "Resume"), Binding("l", "focus('logs')", "Logs"),
-        Binding("m", "focus('market')", "Market"), Binding("s", "focus('positions')", "Positions"),
-        Binding("c", "focus('closed')", "Closed"), Binding("o", "focus('orders')", "Orders"),
-        Binding("x", "open_close_modal", "Close"), Binding("escape", "focus('')", "Clear"),
+        Binding("q", "quit_bot", "Quit"),
+        Binding("p", "pause_trading", "Pause"),
+        Binding("r", "resume_trading", "Resume"),
+        Binding("l", "focus('logs')", "Logs"),
+        Binding("m", "focus('market')", "Market"),
+        Binding("s", "focus('positions')", "Positions"),
+        Binding("c", "focus('closed')", "Closed"),
+        Binding("o", "focus('orders')", "Orders"),
+        Binding("x", "open_close_modal", "Close"),
+        Binding("escape", "focus('')", "Clear"),
     ]
 
     def __init__(self, runtime: TradingRuntime) -> None:
@@ -118,18 +129,87 @@ class TraderTui(App[None]):
                 yield DataTable(id="positions-table")
                 yield DataTable(id="closed-table")
                 yield DataTable(id="orders-table")
-                yield RichLog(id="logs-panel", wrap=True, highlight=True, markup=True, max_lines=1000, auto_scroll=True)
+                yield RichLog(
+                    id="logs-panel",
+                    wrap=True,
+                    highlight=True,
+                    markup=True,
+                    max_lines=1000,
+                    auto_scroll=True,
+                )
         yield Footer()
 
     async def on_mount(self) -> None:
         for tid, cols, title in [
-            ("market-table", ["Symbol", "Last", "Chg%", "Vol", "Spread", "PM30%", "HOD%", "RSI", "ATR%", "EMA", "Signal"], "Market"),
-            ("positions-table", ["Symbol", "Qty", "Entry", "Current", "P&L$", "P&L%", "R-Mult", "Stop", "Target", "Held"], "Open Positions"),
-            ("closed-table", ["Symbol", "Qty", "Entry", "Exit", "P&L$", "P&L%", "Signal", "Reason", "Closed"], "Closed Positions"),
-            ("orders-table", ["ID", "Symbol", "Type", "Side", "Qty", "Filled", "Status", "Price", "Avg Fill"], "Orders"),
+            (
+                "market-table",
+                [
+                    "Symbol",
+                    "Last",
+                    "Chg%",
+                    "Vol",
+                    "Spread",
+                    "PM30%",
+                    "HOD%",
+                    "RSI",
+                    "ATR%",
+                    "EMA",
+                    "Signal",
+                ],
+                "Market",
+            ),
+            (
+                "positions-table",
+                [
+                    "Symbol",
+                    "Qty",
+                    "Entry",
+                    "Current",
+                    "P&L$",
+                    "P&L%",
+                    "R-Mult",
+                    "Stop",
+                    "Target",
+                    "Held",
+                ],
+                "Open Positions",
+            ),
+            (
+                "closed-table",
+                [
+                    "Symbol",
+                    "Qty",
+                    "Entry",
+                    "Exit",
+                    "P&L$",
+                    "P&L%",
+                    "Signal",
+                    "Reason",
+                    "Closed",
+                ],
+                "Closed Positions",
+            ),
+            (
+                "orders-table",
+                [
+                    "ID",
+                    "Symbol",
+                    "Type",
+                    "Side",
+                    "Qty",
+                    "Filled",
+                    "Status",
+                    "Price",
+                    "Avg Fill",
+                ],
+                "Orders",
+            ),
         ]:
             t = self.query_one(f"#{tid}", DataTable)
-            t.add_columns(*cols); t.cursor_type = "row"; t.zebra_stripes = True; t.border_title = title
+            t.add_columns(*cols)
+            t.cursor_type = "row"
+            t.zebra_stripes = True
+            t.border_title = title
         self.query_one("#logs-panel", RichLog).border_title = "Logs"
         self.set_interval(1, self._refresh)
         asyncio.create_task(self._start())
@@ -138,31 +218,45 @@ class TraderTui(App[None]):
         await self._rt.stop()
 
     async def _start(self) -> None:
-        try: await self._rt.start()
-        except Exception as e: logger.exception("Runtime failed: %s", e)
+        try:
+            await self._rt.start()
+        except Exception as e:
+            logger.exception("Runtime failed: %s", e)
 
-    async def action_quit_bot(self) -> None: self.exit()
-    async def action_pause_trading(self) -> None: self._rt.pause_trading()
-    async def action_resume_trading(self) -> None: self._rt.resume_trading()
+    async def action_quit_bot(self) -> None:
+        self.exit()
+
+    async def action_pause_trading(self) -> None:
+        self._rt.pause_trading()
+
+    async def action_resume_trading(self) -> None:
+        self._rt.resume_trading()
 
     def action_open_close_modal(self) -> None:
         status = self._rt.snapshot_status()
         if not status.positions:
             logger.warning("No open positions available to close.")
             return
-        self.push_screen(ClosePositionModal(status.positions), self._handle_close_selection)
+        self.push_screen(
+            ClosePositionModal(status.positions), self._handle_close_selection
+        )
 
     def action_focus(self, panel: str) -> None:
         self._focus = "" if self._focus == panel else panel
         widgets = {
             "status": self.query_one("#status-bar"),
-            "left": self.query_one("#left-panel"), "right": self.query_one("#right-panel"),
-            "market": self.query_one("#market-table"), "positions": self.query_one("#positions-table"),
-            "closed": self.query_one("#closed-table"), "orders": self.query_one("#orders-table"),
+            "left": self.query_one("#left-panel"),
+            "right": self.query_one("#right-panel"),
+            "market": self.query_one("#market-table"),
+            "positions": self.query_one("#positions-table"),
+            "closed": self.query_one("#closed-table"),
+            "orders": self.query_one("#orders-table"),
             "logs": self.query_one("#logs-panel"),
         }
-        for w in widgets.values(): w.display = True
-        if not self._focus: return
+        for w in widgets.values():
+            w.display = True
+        if not self._focus:
+            return
         widgets["status"].display = False
         hide = {
             "logs": ["left", "positions", "closed", "orders"],
@@ -171,44 +265,96 @@ class TraderTui(App[None]):
             "closed": ["left", "positions", "orders", "logs"],
             "orders": ["left", "positions", "closed", "logs"],
         }
-        for k in hide.get(self._focus, []): widgets[k].display = False
+        for k in hide.get(self._focus, []):
+            widgets[k].display = False
 
     def _refresh(self) -> None:
         s = self._rt.snapshot_status()
         # Cards
-        conn = "[bold green]CONNECTED[/]" if s.connected else "[bold red]DISCONNECTED[/]"
-        self.query_one("#c-broker", Static).update(Text.from_markup(f"[bold #5b9bd5]BROKER[/]  {conn}"))
-        phase = {"open": "[bold green]OPEN[/]", "pre-market": "[bold yellow]PRE-MKT[/]"}.get(self._rt.market_phase(), "[bold red]CLOSED[/]")
+        conn = (
+            "[bold green]CONNECTED[/]" if s.connected else "[bold red]DISCONNECTED[/]"
+        )
+        self.query_one("#c-broker", Static).update(
+            Text.from_markup(f"[bold #5b9bd5]BROKER[/]  {conn}")
+        )
+        phase = {
+            "open": "[bold green]OPEN[/]",
+            "pre-market": "[bold yellow]PRE-MKT[/]",
+        }.get(self._rt.market_phase(), "[bold red]CLOSED[/]")
         mode = "[bold red]LIVE[/]" if not self._rt.settings.ib_paper else "PAPER"
-        self.query_one("#c-market", Static).update(Text.from_markup(f"[bold #5b9bd5]MARKET[/]  {phase}  {mode}"))
-        pnl_mk = f"[bold green]+${_fmt(s.realized_pnl)}[/]" if s.realized_pnl > 0 else f"[bold red]-${_fmt(abs(s.realized_pnl))}[/]" if s.realized_pnl < 0 else f"${_fmt(s.realized_pnl)}"
-        self.query_one("#c-account", Static).update(Text.from_markup(f"[bold #5b9bd5]NLV[/] [bold]${_fmt(s.equity)}[/]  P&L {pnl_mk}  DD {float(s.drawdown_pct):.1f}%"))
-        vc = {"calm": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(s.vix_regime, "dim")
+        self.query_one("#c-market", Static).update(
+            Text.from_markup(f"[bold #5b9bd5]MARKET[/]  {phase}  {mode}")
+        )
+        pnl_mk = (
+            f"[bold green]+${_fmt(s.realized_pnl)}[/]"
+            if s.realized_pnl > 0
+            else f"[bold red]-${_fmt(abs(s.realized_pnl))}[/]"
+            if s.realized_pnl < 0
+            else f"${_fmt(s.realized_pnl)}"
+        )
+        self.query_one("#c-account", Static).update(
+            Text.from_markup(
+                f"[bold #5b9bd5]NLV[/] [bold]${_fmt(s.equity)}[/]  P&L {pnl_mk}  DD {float(s.drawdown_pct):.1f}%"
+            )
+        )
+        vc = {"calm": "green", "neutral": "cyan", "fear": "yellow", "panic": "red"}.get(
+            s.vix_regime, "dim"
+        )
         paused = "  [bold red]PAUSED[/]" if not s.trading_enabled else ""
-        self.query_one("#c-risk", Static).update(Text.from_markup(f"[bold #5b9bd5]RISK[/]  VIX {float(s.vix_value or 0):.1f} [{vc}]{s.vix_regime.upper()}[/]  {s.open_position_count}/{s.max_positions} pos{paused}"))
+        self.query_one("#c-risk", Static).update(
+            Text.from_markup(
+                f"[bold #5b9bd5]RISK[/]  VIX {float(s.vix_value or 0):.1f} [{vc}]{s.vix_regime.upper()}[/]  {s.open_position_count}/{s.max_positions} pos{paused}"
+            )
+        )
         # Header
-        pnl_h = f"+{float(s.realized_pnl):.0f}" if s.realized_pnl >= 0 else f"{float(s.realized_pnl):.0f}"
+        pnl_h = (
+            f"+{float(s.realized_pnl):.0f}"
+            if s.realized_pnl >= 0
+            else f"{float(s.realized_pnl):.0f}"
+        )
         self.title = f"${_fmt(s.equity)} | {self._rt.market_phase_text()} | P&L {pnl_h}"
-        self.sub_title = f"{'Connected' if s.connected else 'Disconnected'} | {s.vix_regime.upper()}"
+        self.sub_title = (
+            f"{'Connected' if s.connected else 'Disconnected'} | {s.vix_regime.upper()}"
+        )
         # Market
-        mt = self.query_one("#market-table", DataTable); mt.clear(columns=False)
+        mt = self.query_one("#market-table", DataTable)
+        mt.clear(columns=False)
         quotes = {q.symbol: q for q in self._rt.snapshot_quotes()}
         bars_map = self._rt.bars
         for sym in s.market_data_symbols:
             q = quotes.get(sym)
-            if not q: mt.add_row(sym, *["--"] * 10); continue
-            ind = self._rt.get_indicators(sym); bars = bars_map.get(sym, [])
+            if not q:
+                mt.add_row(sym, *["--"] * 10)
+                continue
+            ind = self._rt.get_indicators(sym)
+            bars = bars_map.get(sym, [])
             d = self._dir(sym, q.last)
             day_change_pct = self._rt.day_change_pct_for_symbol(sym, q.last)
             chg = self._pct(float(day_change_pct)) if bars else "--"
             pre30 = self._rt.premarket_high_30m_for_symbol(sym)
             hod = self._rt.high_of_day_for_symbol(sym)
-            pre30_pct = self._pct(float((q.last - pre30) / pre30 * 100)) if pre30 > 0 else "--"
+            pre30_pct = (
+                self._pct(float((q.last - pre30) / pre30 * 100)) if pre30 > 0 else "--"
+            )
             hod_pct = self._pct(float((q.last - hod) / hod * 100)) if hod > 0 else "--"
             rsi = ind.get("rsi")
-            rsi_t = Text(f"{rsi:.0f}", style="bold red" if rsi > 70 else "bold green" if rsi < 30 else "") if rsi is not None else "--"
-            atr = ind.get("atr_pct"); ema = ind.get("ema_crossover", "none")
-            ema_t = Text("▲", style="bold green") if ema == "bullish" else Text("▼", style="bold red") if ema == "bearish" else "--"
+            rsi_t = (
+                Text(
+                    f"{rsi:.0f}",
+                    style="bold red" if rsi > 70 else "bold green" if rsi < 30 else "",
+                )
+                if rsi is not None
+                else "--"
+            )
+            atr = ind.get("atr_pct")
+            ema = ind.get("ema_crossover", "none")
+            ema_t = (
+                Text("▲", style="bold green")
+                if ema == "bullish"
+                else Text("▼", style="bold red")
+                if ema == "bearish"
+                else "--"
+            )
             sig = Text("WATCH", style="dim cyan") if sym in s.watchlist else "--"
             for p in s.positions:
                 if p.symbol == sym:
@@ -228,20 +374,42 @@ class TraderTui(App[None]):
                 sig,
             )
         # Positions
-        pt = self.query_one("#positions-table", DataTable); pt.clear(columns=False)
+        pt = self.query_one("#positions-table", DataTable)
+        pt.clear(columns=False)
         for p in s.positions:
-            q = quotes.get(p.symbol); cur = q.last if q else p.entry_price
+            q = quotes.get(p.symbol)
+            cur = q.last if q else p.entry_price
             pnl_d = (cur - p.entry_price) * p.remaining_quantity
-            pnl_p = ((cur - p.entry_price) / p.entry_price * 100) if p.entry_price else Decimal(0)
-            risk = p.entry_price - p.stop_price; rm = float((cur - p.entry_price) / risk) if risk else 0.0
-            held = max(0, int((datetime.now(tz=UTC) - p.opened_at).total_seconds())) // 60
-            pt.add_row(p.symbol, str(p.remaining_quantity), _fmt(p.entry_price), _c(cur - p.entry_price, _fmt(cur)),
-                       _c(pnl_d, _fmt(pnl_d)), _c(pnl_p, f"{float(pnl_p):.1f}%"), f"{rm:+.1f}R", _fmt(p.stop_price), _fmt(p.target_price), f"{held}m")
+            pnl_p = (
+                ((cur - p.entry_price) / p.entry_price * 100)
+                if p.entry_price
+                else Decimal(0)
+            )
+            risk = p.entry_price - p.stop_price
+            rm = float((cur - p.entry_price) / risk) if risk else 0.0
+            held = (
+                max(0, int((datetime.now(tz=UTC) - p.opened_at).total_seconds())) // 60
+            )
+            pt.add_row(
+                p.symbol,
+                str(p.remaining_quantity),
+                _fmt(p.entry_price),
+                _c(cur - p.entry_price, _fmt(cur)),
+                _c(pnl_d, _fmt(pnl_d)),
+                _c(pnl_p, f"{float(pnl_p):.1f}%"),
+                f"{rm:+.1f}R",
+                _fmt(p.stop_price),
+                _fmt(p.target_price),
+                f"{held}m",
+            )
         # Closed positions
-        ct = self.query_one("#closed-table", DataTable); ct.clear(columns=False)
+        ct = self.query_one("#closed-table", DataTable)
+        ct.clear(columns=False)
         for p in reversed(s.closed_positions[-15:]):
             cost_basis = p.entry_price * p.quantity
-            pnl_pct = (p.realized_pnl / cost_basis * 100) if cost_basis else Decimal("0")
+            pnl_pct = (
+                (p.realized_pnl / cost_basis * 100) if cost_basis else Decimal("0")
+            )
             closed_at = p.closed_at.astimezone(UTC).strftime("%H:%M:%S")
             ct.add_row(
                 p.symbol,
@@ -255,7 +423,8 @@ class TraderTui(App[None]):
                 closed_at,
             )
         # Orders
-        ot = self.query_one("#orders-table", DataTable); ot.clear(columns=False)
+        ot = self.query_one("#orders-table", DataTable)
+        ot.clear(columns=False)
         for o in s.orders[-20:]:
             px = o.limit_price if o.limit_price is not None else o.stop_price
             if o.status == "Filled":
@@ -279,9 +448,13 @@ class TraderTui(App[None]):
                 avg_fill,
             )
         # Logs
-        lw = self.query_one("#logs-panel", RichLog); logs = self._rt.snapshot_logs()
-        if self._log_count > len(logs): self._log_count = 0; lw.clear()
-        for line in logs[self._log_count:]: lw.write(line)
+        lw = self.query_one("#logs-panel", RichLog)
+        logs = self._rt.snapshot_logs()
+        if self._log_count > len(logs):
+            self._log_count = 0
+            lw.clear()
+        for line in logs[self._log_count :]:
+            lw.write(line)
         self._log_count = len(logs)
 
     def _handle_close_selection(self, symbol: str | None) -> None:
@@ -299,7 +472,8 @@ class TraderTui(App[None]):
         logger.info("Manual close requested for %s", symbol)
 
     def _dir(self, sym: str, price: Decimal) -> int:
-        prev = self._prev.get(sym); self._prev[sym] = price
+        prev = self._prev.get(sym)
+        self._prev[sym] = price
         return 0 if prev is None else 1 if price > prev else -1 if price < prev else 0
 
     def _ct(self, v: str, d: int) -> Text:

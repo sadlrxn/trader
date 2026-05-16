@@ -17,7 +17,14 @@ from trader.config import Settings
 from trader.execution import ExecutionService
 from trader.indicators import compute_indicators
 from trader.market import MarketClock
-from trader.models import Bar, BrokerEvent, BrokerEventKind, ClosedPosition, Quote, RuntimeStatus
+from trader.models import (
+    Bar,
+    BrokerEvent,
+    BrokerEventKind,
+    ClosedPosition,
+    Quote,
+    RuntimeStatus,
+)
 from trader.risk import RiskManager
 from trader.state import StateStore
 from trader.strategy import StrategyEngine
@@ -56,7 +63,9 @@ class TradingRuntime:
 
         self.settings = settings
         self.log_sink = log_sink
-        self.market_clock = MarketClock(settings.trader_market_calendar, settings.trader_timezone)
+        self.market_clock = MarketClock(
+            settings.trader_market_calendar, settings.trader_timezone
+        )
         self.state_store = StateStore(settings.trader_state_db)
         self.status = self.state_store.load_status()
         self.status.positions = self.state_store.load_positions()
@@ -68,7 +77,9 @@ class TradingRuntime:
             state_store=self.state_store,
             partial_stages_config=settings.trader_partial_stages,
             broker_positions=self._broker_positions,
-            trade_journal=TradeJournal(settings.trader_trade_log_dir, settings.trader_timezone),
+            trade_journal=TradeJournal(
+                settings.trader_trade_log_dir, settings.trader_timezone
+            ),
         )
         self.risk = RiskManager(settings)
         self.strategy = StrategyEngine(settings)
@@ -176,16 +187,24 @@ class TradingRuntime:
         self.status.orders = self.execution.snapshot_orders()
         status = self.status.model_copy(deep=True)
         status.vix_regime = self._vix_regime
-        status.vix_value = Decimal(str(self.broker.last_vix)) if getattr(self.broker, "last_vix", 0) else None
+        status.vix_value = (
+            Decimal(str(self.broker.last_vix))
+            if getattr(self.broker, "last_vix", 0)
+            else None
+        )
         status.session_nlv_high = self._session_nlv_high
         status.open_position_count = len(self.execution.positions)
         status.max_positions = self.settings.trader_max_open_positions
         # Compute drawdown
         if self._session_nlv_high > 0:
-            status.drawdown_pct = (self._session_nlv_high - status.equity) / self._session_nlv_high * 100
+            status.drawdown_pct = (
+                (self._session_nlv_high - status.equity) / self._session_nlv_high * 100
+            )
         # Daily loss %
         if status.equity > 0:
-            daily_loss = -status.realized_pnl if status.realized_pnl < 0 else Decimal("0")
+            daily_loss = (
+                -status.realized_pnl if status.realized_pnl < 0 else Decimal("0")
+            )
             status.daily_loss_pct = daily_loss / status.equity * 100
         return status
 
@@ -202,7 +221,9 @@ class TradingRuntime:
     def snapshot_quotes(self) -> list[Quote]:
         """Return the latest quotes sorted by watchlist priority."""
 
-        watchlist_order = {symbol: index for index, symbol in enumerate(self.status.watchlist)}
+        watchlist_order = {
+            symbol: index for index, symbol in enumerate(self.status.watchlist)
+        }
         return sorted(
             self.quotes.values(),
             key=lambda quote: (watchlist_order.get(quote.symbol, 10_000), quote.symbol),
@@ -222,7 +243,9 @@ class TradingRuntime:
         volume_total = sum((bar.volume for bar in bars), start=Decimal("0"))
         if volume_total <= 0:
             return Decimal("0")
-        weighted_total = sum((bar.close * bar.volume for bar in bars), start=Decimal("0"))
+        weighted_total = sum(
+            (bar.close * bar.volume for bar in bars), start=Decimal("0")
+        )
         return weighted_total / volume_total
 
     def day_change_pct_for_symbol(self, symbol: str, last_price: Decimal) -> Decimal:
@@ -245,7 +268,11 @@ class TradingRuntime:
         candidates = [
             bar.high
             for bar in bars
-            if _PREOPEN_WINDOW_START <= bar.timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None) < _REGULAR_OPEN
+            if _PREOPEN_WINDOW_START
+            <= bar.timestamp.astimezone(self.market_clock._timezone)
+            .timetz()
+            .replace(tzinfo=None)
+            < _REGULAR_OPEN
         ]
         return max(candidates, default=Decimal("0"))
 
@@ -258,19 +285,26 @@ class TradingRuntime:
         candidates = [
             bar.high
             for bar in bars
-            if bar.timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None) >= _REGULAR_OPEN
+            if bar.timestamp.astimezone(self.market_clock._timezone)
+            .timetz()
+            .replace(tzinfo=None)
+            >= _REGULAR_OPEN
         ]
         return max(candidates, default=Decimal("0"))
 
     def market_phase(self) -> str:
         """Return the current market phase for UI surfaces."""
 
-        return self.market_clock.market_phase(premarket_start=self.settings.trader_premarket_start)
+        return self.market_clock.market_phase(
+            premarket_start=self.settings.trader_premarket_start
+        )
 
     def market_phase_text(self) -> str:
         """Return a human-readable market phase label."""
 
-        return self.market_clock.market_status_text(premarket_start=self.settings.trader_premarket_start)
+        return self.market_clock.market_status_text(
+            premarket_start=self.settings.trader_premarket_start
+        )
 
     async def _consume_broker_events(self) -> None:
         """Process normalized broker events forever."""
@@ -294,12 +328,18 @@ class TradingRuntime:
             self.status.last_error = event.message
             logger.error(event.message)
             return
-        if event.kind is BrokerEventKind.ACCOUNT and event.account_tag == "NetLiquidation":
+        if (
+            event.kind is BrokerEventKind.ACCOUNT
+            and event.account_tag == "NetLiquidation"
+        ):
             self.status.equity = Decimal(event.account_value or "0")
             self._check_drawdown(self.status.equity)
             return
         if event.kind is BrokerEventKind.POSITION:
-            if not self.execution.tracks_symbol(event.symbol) and event.symbol not in self._broker_positions:
+            if (
+                not self.execution.tracks_symbol(event.symbol)
+                and event.symbol not in self._broker_positions
+            ):
                 return
             if event.position_quantity:
                 self._broker_positions[event.symbol] = event.position_quantity
@@ -333,7 +373,9 @@ class TradingRuntime:
                     self._vix_regime = classify_vix_regime(vix_val)
                 return
             self.quotes[event.symbol] = event.quote
-            await self.execution.manage_open_position(event.symbol, event.quote, self.bars[event.symbol])
+            await self.execution.manage_open_position(
+                event.symbol, event.quote, self.bars[event.symbol]
+            )
             await self._evaluate_signal(event.symbol)
             return
         if event.kind is BrokerEventKind.BAR and event.bar is not None:
@@ -341,7 +383,9 @@ class TradingRuntime:
             self._update_indicators(event.symbol)
             quote = self.quotes.get(event.symbol)
             if quote is not None:
-                await self.execution.manage_open_position(event.symbol, quote, self.bars[event.symbol])
+                await self.execution.manage_open_position(
+                    event.symbol, quote, self.bars[event.symbol]
+                )
                 await self._check_trailing_stop(event.symbol, quote)
             await self._evaluate_signal(event.symbol)
             return
@@ -386,7 +430,9 @@ class TradingRuntime:
             return
         if self._reconnect_task is not None and not self._reconnect_task.done():
             return
-        self._reconnect_task = asyncio.create_task(self._reconnect_loop(), name="broker-reconnect")
+        self._reconnect_task = asyncio.create_task(
+            self._reconnect_loop(), name="broker-reconnect"
+        )
 
     async def _reconnect_loop(self) -> None:
         """Retry the broker connection at a fixed interval until it succeeds."""
@@ -421,7 +467,9 @@ class TradingRuntime:
         if not symbols:
             symbols = self.settings.fallback_symbols()
         self.status.watchlist = list(dict.fromkeys(symbols))
-        desired_symbols = list(dict.fromkeys(self.status.watchlist + self._active_position_symbols()))
+        desired_symbols = list(
+            dict.fromkeys(self.status.watchlist + self._active_position_symbols())
+        )
         await self._sync_market_data_subscriptions(desired_symbols)
         if self.status.watchlist:
             self._save_daily_watchlist(self.status.watchlist)
@@ -465,7 +513,10 @@ class TradingRuntime:
         self.status.market_open = self.market_phase() == "open"
         if not self.status.market_open:
             return
-        if self.settings.trader_enable_vix_gate and self._vix_regime in ("panic", "fear"):
+        if self.settings.trader_enable_vix_gate and self._vix_regime in (
+            "panic",
+            "fear",
+        ):
             logger.info("VIX regime %s -- blocking new entries", self._vix_regime)
             return
         bars = self.bars.get(symbol, [])
@@ -486,7 +537,12 @@ class TradingRuntime:
             trading_enabled=self.status.trading_enabled,
         )
         if not decision.approved:
-            logger.info("Rejected %s signal for %s: %s", signal.signal_type, symbol, decision.reason)
+            logger.info(
+                "Rejected %s signal for %s: %s",
+                signal.signal_type,
+                symbol,
+                decision.reason,
+            )
             return
         self._last_signal_timestamp[symbol] = signal.timestamp
         await self.execution.enter_signal(signal=signal, quantity=decision.quantity)
@@ -500,7 +556,9 @@ class TradingRuntime:
             drawdown = (self._session_nlv_high - equity) / self._session_nlv_high
             if drawdown >= self.settings.trader_max_drawdown:
                 self.pause_trading()
-                logger.error("DRAWDOWN LIMIT: %.1f%% from session high", float(drawdown * 100))
+                logger.error(
+                    "DRAWDOWN LIMIT: %.1f%% from session high", float(drawdown * 100)
+                )
 
     def _update_indicators(self, symbol: str) -> None:
         """Recompute technical indicators for a symbol after a bar update."""
@@ -523,7 +581,9 @@ class TradingRuntime:
         try:
             self._indicators[symbol] = compute_indicators(df)
         except Exception as e:
-            logger.warning("Indicator computation failed for %s: %s", symbol, e, exc_info=True)
+            logger.warning(
+                "Indicator computation failed for %s: %s", symbol, e, exc_info=True
+            )
 
     async def _check_trailing_stop(self, symbol: str, quote: Quote) -> None:
         """Convert stop to trailing when price rises far enough above entry after target fill."""
@@ -535,7 +595,9 @@ class TradingRuntime:
         atr_val = indicators.get("atr")
         if atr_val is None or atr_val <= 0:
             return
-        threshold = float(position.entry_price) + atr_val * float(self.settings.trader_trailing_stop_atr_multiple)
+        threshold = float(position.entry_price) + atr_val * float(
+            self.settings.trader_trailing_stop_atr_multiple
+        )
         if float(quote.last) >= threshold:
             await self.execution.convert_to_trailing_stop(symbol, trail_amount=atr_val)
 
@@ -581,8 +643,16 @@ class TradingRuntime:
     def _active_position_symbols(self) -> list[str]:
         """Return symbols that must remain subscribed because exposure exists."""
 
-        symbols = [symbol for symbol, position in self.execution.positions.items() if position.remaining_quantity > 0]
-        symbols.extend(symbol for symbol, quantity in self._broker_positions.items() if int(quantity) > 0)
+        symbols = [
+            symbol
+            for symbol, position in self.execution.positions.items()
+            if position.remaining_quantity > 0
+        ]
+        symbols.extend(
+            symbol
+            for symbol, quantity in self._broker_positions.items()
+            if int(quantity) > 0
+        )
         return list(dict.fromkeys(symbols))
 
     async def _ensure_market_data_symbol(self, symbol: str) -> None:
@@ -609,7 +679,10 @@ class TradingRuntime:
 
         if quote.last <= 0:
             return False
-        if quote.last < self.settings.trader_scan_above_price or quote.last > self.settings.trader_scan_below_price:
+        if (
+            quote.last < self.settings.trader_scan_above_price
+            or quote.last > self.settings.trader_scan_below_price
+        ):
             return False
         day_gain_pct = self.day_change_pct_for_symbol(symbol, quote.last)
         if day_gain_pct < self.settings.trader_min_day_gain_pct:
@@ -628,7 +701,9 @@ class TradingRuntime:
         if not symbols:
             self._last_flatten_request_date = now.date()
             return
-        logger.warning("DAY TRADING FLATTEN: requesting exits for %s", ", ".join(symbols))
+        logger.warning(
+            "DAY TRADING FLATTEN: requesting exits for %s", ", ".join(symbols)
+        )
         for symbol in symbols:
             try:
                 await self.close_position(symbol)
@@ -648,12 +723,16 @@ class TradingRuntime:
         ]
         if not overnight:
             return
-        logger.warning("OVERNIGHT POSITION FLATTEN: requesting exits for %s", ", ".join(overnight))
+        logger.warning(
+            "OVERNIGHT POSITION FLATTEN: requesting exits for %s", ", ".join(overnight)
+        )
         for symbol in overnight:
             try:
                 await self.close_position(symbol)
             except Exception as error:
-                logger.error("OVERNIGHT POSITION FLATTEN FAILED for %s: %s", symbol, error)
+                logger.error(
+                    "OVERNIGHT POSITION FLATTEN FAILED for %s: %s", symbol, error
+                )
 
     def _same_day_bars(self, symbol: str) -> list[Bar]:
         """Return only bars from the current retained trading day for a symbol."""
@@ -665,7 +744,8 @@ class TradingRuntime:
         return [
             bar
             for bar in bars
-            if bar.timestamp.astimezone(self.market_clock._timezone).date() == latest_date
+            if bar.timestamp.astimezone(self.market_clock._timezone).date()
+            == latest_date
         ]
 
     async def _load_daily_watchlist(self) -> None:
@@ -675,7 +755,9 @@ class TradingRuntime:
         if not path.exists():
             return
         data = json.loads(path.read_text())
-        symbols = [item["symbol"] for item in data.get("watchlist", []) if item.get("symbol")]
+        symbols = [
+            item["symbol"] for item in data.get("watchlist", []) if item.get("symbol")
+        ]
         if not symbols:
             return
         self.status.watchlist = symbols
@@ -707,20 +789,36 @@ class TradingRuntime:
         first_bar = bars[0] if bars else None
         percent_change = Decimal("0")
         if latest_bar is not None and first_bar is not None and first_bar.open > 0:
-            percent_change = ((latest_bar.close - first_bar.open) / first_bar.open) * Decimal("100")
+            percent_change = (
+                (latest_bar.close - first_bar.open) / first_bar.open
+            ) * Decimal("100")
         return {
             "symbol": symbol,
             "premarket_high": str(premarket_high),
             "premarket_low": str(premarket_low),
-            "volume": str((quote.volume if quote is not None else (latest_bar.volume if latest_bar is not None else Decimal("0")))),
+            "volume": str(
+                (
+                    quote.volume
+                    if quote is not None
+                    else (latest_bar.volume if latest_bar is not None else Decimal("0"))
+                )
+            ),
             "percent_change": f"{percent_change:.2f}",
         }
 
     def _is_premarket_bar(self, timestamp: datetime) -> bool:
         """Return whether a bar falls in the configured premarket window."""
 
-        local_time = timestamp.astimezone(self.market_clock._timezone).timetz().replace(tzinfo=None)
-        return self.settings.trader_premarket_start <= local_time < self.settings.trader_entry_cutoff.replace(hour=9, minute=30)
+        local_time = (
+            timestamp.astimezone(self.market_clock._timezone)
+            .timetz()
+            .replace(tzinfo=None)
+        )
+        return (
+            self.settings.trader_premarket_start
+            <= local_time
+            < self.settings.trader_entry_cutoff.replace(hour=9, minute=30)
+        )
 
     def _today_watchlist_path(self) -> Path:
         """Return the JSON file path for the current trading day watchlist."""

@@ -126,7 +126,7 @@ from ibapi.server_versions import (
     MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS,
     MIN_SERVER_VER_IMBALANCE_ONLY,
     MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS,
-    MIN_SERVER_VER_PROTOBUF
+    MIN_SERVER_VER_PROTOBUF,
 )
 
 from ibapi.utils import ClientException, log_
@@ -141,14 +141,25 @@ from ibapi.utils import (
 from ibapi.errors import INVALID_SYMBOL
 from ibapi.utils import isAsciiPrintable
 from ibapi.common import PROTOBUF_MSG_ID
-from ibapi.client_utils import createExecutionRequestProto, createPlaceOrderRequestProto, createCancelOrderRequestProto, createGlobalCancelRequestProto
+from ibapi.client_utils import (
+    createExecutionRequestProto,
+    createPlaceOrderRequestProto,
+    createCancelOrderRequestProto,
+    createGlobalCancelRequestProto,
+)
 
-from ibapi.protobuf.ComboLeg_pb2 import ComboLeg as ComboLegProto
-from ibapi.protobuf.ExecutionFilter_pb2 import ExecutionFilter as ExecutionFilterProto
-from ibapi.protobuf.ExecutionRequest_pb2 import ExecutionRequest as ExecutionRequestProto
-from ibapi.protobuf.PlaceOrderRequest_pb2 import PlaceOrderRequest as PlaceOrderRequestProto
-from ibapi.protobuf.CancelOrderRequest_pb2 import CancelOrderRequest as CancelOrderRequestProto
-from ibapi.protobuf.GlobalCancelRequest_pb2 import GlobalCancelRequest as GlobalCancelRequestProto
+from ibapi.protobuf.ExecutionRequest_pb2 import (
+    ExecutionRequest as ExecutionRequestProto,
+)
+from ibapi.protobuf.PlaceOrderRequest_pb2 import (
+    PlaceOrderRequest as PlaceOrderRequestProto,
+)
+from ibapi.protobuf.CancelOrderRequest_pb2 import (
+    CancelOrderRequest as CancelOrderRequestProto,
+)
+from ibapi.protobuf.GlobalCancelRequest_pb2 import (
+    GlobalCancelRequest as GlobalCancelRequestProto,
+)
 
 # TODO: use pylint
 
@@ -208,7 +219,7 @@ class EClient(object):
         logger.info("%s %s %s", "SENDING", current_fn_name(1), full_msg)
         self.conn.sendMsg(full_msg)
 
-    def sendMsg(self, msgId:int, msg: str):
+    def sendMsg(self, msgId: int, msg: str):
         useRawIntMsgId = self.serverVersion() >= MIN_SERVER_VER_PROTOBUF
         full_msg = comm.make_msg(msgId, useRawIntMsgId, msg)
         logger.info("%s %s %s", "SENDING", current_fn_name(1), full_msg)
@@ -222,21 +233,29 @@ class EClient(object):
             raise ClientException(
                 INVALID_SYMBOL.code(),
                 INVALID_SYMBOL.msg(),
-                host.encode(sys.stdout.encoding, errors="ignore").decode(sys.stdout.encoding),
+                host.encode(sys.stdout.encoding, errors="ignore").decode(
+                    sys.stdout.encoding
+                ),
             )
 
-        if self.connectOptions is not None and not isAsciiPrintable(self.connectOptions):
+        if self.connectOptions is not None and not isAsciiPrintable(
+            self.connectOptions
+        ):
             raise ClientException(
                 INVALID_SYMBOL.code(),
                 INVALID_SYMBOL.msg(),
-                self.connectOptions.encode(sys.stdout.encoding, errors="ignore").decode(sys.stdout.encoding),
+                self.connectOptions.encode(sys.stdout.encoding, errors="ignore").decode(
+                    sys.stdout.encoding
+                ),
             )
 
         if self.optCapab is not None and not isAsciiPrintable(self.optCapab):
             raise ClientException(
                 INVALID_SYMBOL.code(),
                 INVALID_SYMBOL.msg(),
-                self.optCapab.encode(sys.stdout.encoding, errors="ignore").decode(sys.stdout.encoding),
+                self.optCapab.encode(sys.stdout.encoding, errors="ignore").decode(
+                    sys.stdout.encoding
+                ),
             )
 
     def useProtoBuf(self, msgId: int) -> bool:
@@ -250,7 +269,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         try:
@@ -262,7 +286,9 @@ class EClient(object):
                 msg += make_field(self.optCapab if self.optCapab is not None else "")
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.START_API, msg)
@@ -285,7 +311,9 @@ class EClient(object):
         try:
             self.validateInvalidSymbols(host)
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         try:
@@ -354,7 +382,12 @@ class EClient(object):
             self.wrapper.connectAck()
         except socket.error:
             if self.wrapper:
-                self.wrapper.error(NO_VALID_ID, currentTimeMillis(), CONNECT_FAIL.code(), CONNECT_FAIL.msg())
+                self.wrapper.error(
+                    NO_VALID_ID,
+                    currentTimeMillis(),
+                    CONNECT_FAIL.code(),
+                    CONNECT_FAIL.msg(),
+                )
             logger.info("could not connect")
             self.disconnect()
 
@@ -422,14 +455,13 @@ class EClient(object):
                         logger.debug("queue.get: empty")
                         self.msgLoopTmo()
                     else:
-
                         if self.serverVersion() >= MIN_SERVER_VER_PROTOBUF:
                             sMsgId = text[:4]
-                            msgId = int.from_bytes(sMsgId, 'big')  
+                            msgId = int.from_bytes(sMsgId, "big")
                             text = text[4:]
                         else:
-                            sMsgId = text[:text.index(b"\0")]
-                            text = text[text.index(b"\0") + len(b"\0"):]
+                            sMsgId = text[: text.index(b"\0")]
+                            text = text[text.index(b"\0") + len(b"\0") :]
                             msgId = int(sMsgId)
 
                         if msgId > PROTOBUF_MSG_ID:
@@ -461,7 +493,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -482,7 +519,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -533,7 +575,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_DELTA_NEUTRAL:
@@ -666,7 +710,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         VERSION = 2
@@ -696,7 +742,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_MARKET_DATA_TYPE:
@@ -724,7 +775,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_SMART_COMPONENTS:
@@ -737,10 +793,7 @@ class EClient(object):
             return
 
         try:
-            msg = (
-                make_field(reqId)
-                + make_field(bboExchange)
-            )
+            msg = make_field(reqId) + make_field(bboExchange)
 
         except ClientException as ex:
             self.wrapper.error(reqId, currentTimeMillis(), ex.code, ex.msg + ex.text)
@@ -752,7 +805,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_MARKET_RULES:
@@ -779,7 +837,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_TICK_BY_TICK:
@@ -833,7 +896,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_TICK_BY_TICK:
@@ -873,7 +941,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT:
@@ -949,7 +1019,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT:
@@ -964,10 +1036,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.CANCEL_CALC_IMPLIED_VOLAT, msg)
 
@@ -990,7 +1059,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT:
@@ -1066,7 +1137,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_CALC_IMPLIED_VOLAT:
@@ -1081,10 +1154,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.CANCEL_CALC_OPTION_PRICE, msg)
 
@@ -1098,7 +1168,7 @@ class EClient(object):
         override: int,
         manualOrderTime: str,
         customerAccount: str,
-        professionalCustomer: bool
+        professionalCustomer: bool,
     ):
         """reqId:TickerId - The ticker id. multipleust be a unique value.
         contract:Contract - This structure contains a description of the
@@ -1121,7 +1191,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_TRADING_CLASS:
@@ -1135,7 +1207,10 @@ class EClient(object):
                 )
                 return
 
-        if self.serverVersion() < MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS and manualOrderTime:
+        if (
+            self.serverVersion() < MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS
+            and manualOrderTime
+        ):
             self.wrapper.error(
                 reqId,
                 currentTimeMillis(),
@@ -1145,15 +1220,13 @@ class EClient(object):
             )
             return
 
-        if (
-            self.serverVersion() < MIN_SERVER_VER_CUSTOMER_ACCOUNT
-            and customerAccount
-        ):
+        if self.serverVersion() < MIN_SERVER_VER_CUSTOMER_ACCOUNT and customerAccount:
             self.wrapper.error(
                 reqId,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + "  It does not support customer account parameter in exerciseOptions.",
+                UPDATE_TWS.msg()
+                + "  It does not support customer account parameter in exerciseOptions.",
             )
             return
 
@@ -1165,7 +1238,8 @@ class EClient(object):
                 reqId,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + "  It does not support professional customer parameter in exerciseOptions.",
+                UPDATE_TWS.msg()
+                + "  It does not support professional customer parameter in exerciseOptions.",
             )
             return
 
@@ -1204,7 +1278,10 @@ class EClient(object):
                 make_field(account),
                 make_field(override),
             ]
-            if self.serverVersion() >= MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS:
+            if (
+                self.serverVersion()
+                >= MIN_SERVER_VER_MANUAL_ORDER_TIME_EXERCISE_OPTIONS
+            ):
                 fields += [
                     make_field(manualOrderTime),
                 ]
@@ -1241,15 +1318,19 @@ class EClient(object):
         order:Order - This structure contains the details of tradedhe order.
             Note: Each client MUST connect with a unique clientId."""
 
-        if (self.useProtoBuf(OUT.PLACE_ORDER)):
-            placeOrderRequestProto = createPlaceOrderRequestProto(orderId, contract, order)
+        if self.useProtoBuf(OUT.PLACE_ORDER):
+            placeOrderRequestProto = createPlaceOrderRequestProto(
+                orderId, contract, order
+            )
             self.placeOrderProtoBuf(placeOrderRequestProto)
             return
 
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(orderId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                orderId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_DELTA_NEUTRAL:
@@ -1266,7 +1347,7 @@ class EClient(object):
             if order.scaleSubsLevelSize != UNSET_INTEGER:
                 self.wrapper.error(
                     orderId,
-                    currentTimeMillis(), 
+                    currentTimeMillis(),
                     UPDATE_TWS.code(),
                     UPDATE_TWS.msg()
                     + "  It does not support Subsequent Level Size for Scale orders.",
@@ -1277,7 +1358,7 @@ class EClient(object):
             if order.algoStrategy:
                 self.wrapper.error(
                     orderId,
-                    currentTimeMillis(), 
+                    currentTimeMillis(),
                     UPDATE_TWS.code(),
                     UPDATE_TWS.msg() + "  It does not support algo orders.",
                 )
@@ -1287,7 +1368,7 @@ class EClient(object):
             if order.notHeld:
                 self.wrapper.error(
                     orderId,
-                    currentTimeMillis(), 
+                    currentTimeMillis(),
                     UPDATE_TWS.code(),
                     UPDATE_TWS.msg() + "  It does not support notHeld parameter.",
                 )
@@ -1685,7 +1766,8 @@ class EClient(object):
                 orderId,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + "  It does not support professional customer parameter",
+                UPDATE_TWS.msg()
+                + "  It does not support professional customer parameter",
             )
             return
 
@@ -1702,21 +1784,19 @@ class EClient(object):
             return
 
         if (
-            self.serverVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS 
+            self.serverVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS
             and order.manualOrderIndicator != UNSET_INTEGER
         ):
             self.wrapper.error(
                 NO_VALID_ID,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + " It does not support manual order indicator parameters",
+                UPDATE_TWS.msg()
+                + " It does not support manual order indicator parameters",
             )
             return
 
-        if (
-            self.serverVersion() < MIN_SERVER_VER_IMBALANCE_ONLY
-            and order.imbalanceOnly
-        ):
+        if self.serverVersion() < MIN_SERVER_VER_IMBALANCE_ONLY and order.imbalanceOnly:
             self.wrapper.error(
                 orderId,
                 currentTimeMillis(),
@@ -2155,7 +2235,10 @@ class EClient(object):
             if self.serverVersion() >= MIN_SERVER_VER_PROFESSIONAL_CUSTOMER:
                 flds.append(make_field(order.professionalCustomer))
 
-            if self.serverVersion() >= MIN_SERVER_VER_RFQ_FIELDS and self.serverVersion() < MIN_SERVER_VER_UNDO_RFQ_FIELDS:
+            if (
+                self.serverVersion() >= MIN_SERVER_VER_RFQ_FIELDS
+                and self.serverVersion() < MIN_SERVER_VER_UNDO_RFQ_FIELDS
+            ):
                 flds.append(make_field(""))
                 flds.append(make_field(UNSET_INTEGER))
 
@@ -2187,15 +2270,22 @@ class EClient(object):
         orderId:OrderId - The order ID that was specified previously in the call
             to placeOrder()"""
 
-        if (self.useProtoBuf(OUT.CANCEL_ORDER)):
-            cancelOrderRequestProto = createCancelOrderRequestProto(orderId, orderCancel)
+        if self.useProtoBuf(OUT.CANCEL_ORDER):
+            cancelOrderRequestProto = createCancelOrderRequestProto(
+                orderId, orderCancel
+            )
             self.cancelOrderProtoBuf(cancelOrderRequestProto)
             return
 
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if (
@@ -2212,13 +2302,15 @@ class EClient(object):
             return
 
         if self.serverVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS and (
-            orderCancel.extOperator != "" or orderCancel.manualOrderIndicator != UNSET_INTEGER
+            orderCancel.extOperator != ""
+            or orderCancel.manualOrderIndicator != UNSET_INTEGER
         ):
             self.wrapper.error(
                 orderId,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + " It does not support ext operator and manual order indicator parameters",
+                UPDATE_TWS.msg()
+                + " It does not support ext operator and manual order indicator parameters",
             )
             return
 
@@ -2233,7 +2325,10 @@ class EClient(object):
             if self.serverVersion() >= MIN_SERVER_VER_MANUAL_ORDER_TIME:
                 flds += [make_field(orderCancel.manualOrderCancelTime)]
 
-            if self.serverVersion() >= MIN_SERVER_VER_RFQ_FIELDS and self.serverVersion() < MIN_SERVER_VER_UNDO_RFQ_FIELDS:
+            if (
+                self.serverVersion() >= MIN_SERVER_VER_RFQ_FIELDS
+                and self.serverVersion() < MIN_SERVER_VER_UNDO_RFQ_FIELDS
+            ):
                 flds += [make_field("")]
                 flds += [make_field("")]
                 flds += [make_field(UNSET_INTEGER)]
@@ -2268,7 +2363,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -2292,15 +2392,17 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(bAutoBind)
-        )
+        msg = make_field(VERSION) + make_field(bAutoBind)
 
         self.sendMsg(OUT.REQ_AUTO_OPEN_ORDERS, msg)
 
@@ -2315,7 +2417,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -2331,7 +2438,7 @@ class EClient(object):
         If the order was created in TWS, it also gets canceled. If the order
         was initiated in the API, it also gets canceled."""
 
-        if (self.useProtoBuf(OUT.REQ_GLOBAL_CANCEL)):
+        if self.useProtoBuf(OUT.REQ_GLOBAL_CANCEL):
             globalCancelRequestProto = createGlobalCancelRequestProto(orderCancel)
             self.reqGlobalCancelProtoBuf(globalCancelRequestProto)
             return
@@ -2339,17 +2446,24 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_CME_TAGGING_FIELDS and (
-            orderCancel.extOperator != "" or orderCancel.manualOrderIndicator != UNSET_INTEGER
+            orderCancel.extOperator != ""
+            or orderCancel.manualOrderIndicator != UNSET_INTEGER
         ):
             self.wrapper.error(
                 NO_VALID_ID,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + " It does not support ext operator and manual order indicator parameters",
+                UPDATE_TWS.msg()
+                + " It does not support ext operator and manual order indicator parameters",
             )
             return
 
@@ -2367,12 +2481,16 @@ class EClient(object):
             msg = "".join(flds)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.REQ_GLOBAL_CANCEL, msg)
 
-    def reqGlobalCancelProtoBuf(self, globalCancelRequestProto: GlobalCancelRequestProto):
+    def reqGlobalCancelProtoBuf(
+        self, globalCancelRequestProto: GlobalCancelRequestProto
+    ):
         serializedString = globalCancelRequestProto.SerializeToString()
 
         self.sendMsgProtoBuf(OUT.REQ_GLOBAL_CANCEL + PROTOBUF_MSG_ID, serializedString)
@@ -2389,7 +2507,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -2416,7 +2539,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         try:
@@ -2432,7 +2560,9 @@ class EClient(object):
             msg = "".join(flds)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.REQ_ACCT_DATA, msg)
@@ -2495,7 +2625,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         try:
@@ -2522,15 +2657,17 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.CANCEL_ACCOUNT_SUMMARY, msg)
 
@@ -2540,7 +2677,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_POSITIONS:
@@ -2564,7 +2706,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_POSITIONS:
@@ -2590,7 +2737,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_MODELS_SUPPORT:
@@ -2622,7 +2774,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_MODELS_SUPPORT:
@@ -2637,10 +2794,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
         self.sendMsg(OUT.CANCEL_POSITIONS_MULTI, msg)
 
     def reqAccountUpdatesMulti(
@@ -2651,7 +2805,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_MODELS_SUPPORT:
@@ -2685,7 +2844,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_MODELS_SUPPORT:
@@ -2700,10 +2864,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
         self.sendMsg(OUT.CANCEL_ACCOUNT_UPDATES_MULTI, msg)
 
     #########################################################################
@@ -2714,7 +2875,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_PNL:
@@ -2727,11 +2893,7 @@ class EClient(object):
             return
 
         try:
-            msg = (
-                make_field(reqId)
-                + make_field(account)
-                + make_field(modelCode)
-            )
+            msg = make_field(reqId) + make_field(account) + make_field(modelCode)
 
         except ClientException as ex:
             self.wrapper.error(reqId, currentTimeMillis(), ex.code, ex.msg + ex.text)
@@ -2743,7 +2905,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_PNL:
@@ -2763,7 +2930,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_PNL:
@@ -2793,7 +2965,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_PNL:
@@ -2827,7 +3004,7 @@ class EClient(object):
             reports are returned.
 
         NOTE: Time format must be 'yyyymmdd-hh:mm:ss' Eg: '20030702-14:55'"""
-        if (self.useProtoBuf(OUT.REQ_EXECUTIONS)):
+        if self.useProtoBuf(OUT.REQ_EXECUTIONS):
             executionRequestProto = createExecutionRequestProto(reqId, execFilter)
             self.reqExecutionsProtoBuf(executionRequestProto)
             return
@@ -2835,14 +3012,18 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
-        
-        
+
         if self.serverVersion() < MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS:
             if (
                 execFilter.lastNDays != UNSET_INTEGER
-                or execFilter.specificDates is not None 
+                or execFilter.specificDates is not None
             ):
                 self.wrapper.error(
                     reqId,
@@ -2875,12 +3056,12 @@ class EClient(object):
                 make_field(execFilter.exchange),
                 make_field(execFilter.side),
             ]
-            
+
             if self.serverVersion() >= MIN_SERVER_VER_PARAMETRIZED_DAYS_OF_EXECUTIONS:
                 flds += [
                     make_field(execFilter.lastNDays),
                 ]
-                if execFilter.specificDates is not None :
+                if execFilter.specificDates is not None:
                     flds += [
                         make_field(len(execFilter.specificDates)),
                     ]
@@ -2923,7 +3104,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_SEC_ID_TYPE:
@@ -3043,7 +3229,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_MKT_DEPTH_EXCHANGES:
@@ -3088,7 +3279,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_TRADING_CLASS:
@@ -3196,7 +3392,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_SMART_DEPTH and isSmartDepth:
@@ -3239,15 +3440,17 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(allMsgs)
-        )
+        msg = make_field(VERSION) + make_field(allMsgs)
 
         self.sendMsg(OUT.REQ_NEWS_BULLETINS, msg)
 
@@ -3257,7 +3460,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -3279,7 +3487,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -3300,7 +3513,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() >= MIN_SERVER_VER_FA_PROFILE_DESUPPORT and faData == 2:
@@ -3333,27 +3551,32 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() >= MIN_SERVER_VER_FA_PROFILE_DESUPPORT and faData == 2:
-            self.wrapper.error(reqId, currentTimeMillis(), FA_PROFILE_NOT_SUPPORTED.code(), FA_PROFILE_NOT_SUPPORTED.msg())
+            self.wrapper.error(
+                reqId,
+                currentTimeMillis(),
+                FA_PROFILE_NOT_SUPPORTED.code(),
+                FA_PROFILE_NOT_SUPPORTED.msg(),
+            )
             return
 
         try:
             VERSION = 1
 
-            msg = (
-                make_field(VERSION)
-                + make_field(int(faData))
-                + make_field(cxml)
-            )
+            msg = make_field(VERSION) + make_field(int(faData)) + make_field(cxml)
 
             if self.serverVersion() >= MIN_SERVER_VER_REPLACE_FA_END:
                 msg += make_field(reqId)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         return self.sendMsg(OUT.REPLACE_FA, msg)
@@ -3433,7 +3656,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_TRADING_CLASS:
@@ -3550,15 +3775,17 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.CANCEL_HISTORICAL_DATA, msg)
 
@@ -3576,7 +3803,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_HEAD_TIMESTAMP:
@@ -3622,7 +3854,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_CANCEL_HEADTIMESTAMP:
@@ -3646,7 +3883,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_HISTOGRAM:
@@ -3691,7 +3933,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_HISTOGRAM:
@@ -3722,7 +3969,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_HISTORICAL_TICKS:
@@ -3785,7 +4037,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
@@ -3810,7 +4067,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if (
@@ -3893,15 +4155,17 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.CANCEL_SCANNER_SUBSCRIPTION, msg)
 
@@ -3947,7 +4211,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_TRADING_CLASS:
@@ -4019,7 +4288,9 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                reqId, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg()
+            )
             return
 
         VERSION = 1
@@ -4069,7 +4340,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         try:
@@ -4142,7 +4418,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_FUNDAMENTAL_DATA:
@@ -4156,10 +4437,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.CANCEL_FUNDAMENTAL_DATA, msg)
 
@@ -4171,7 +4449,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_NEWS_PROVIDERS:
@@ -4195,7 +4478,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_NEWS_ARTICLE:
@@ -4247,7 +4535,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_HISTORICAL_NEWS:
@@ -4305,7 +4598,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4319,10 +4617,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.QUERY_DISPLAY_GROUPS, msg)
 
@@ -4334,7 +4629,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4349,11 +4649,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-            + make_field(groupId)
-        )
+        msg = make_field(VERSION) + make_field(reqId) + make_field(groupId)
 
         self.sendMsg(OUT.SUBSCRIBE_TO_GROUP_EVENTS, msg)
 
@@ -4370,7 +4666,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4385,14 +4686,12 @@ class EClient(object):
         try:
             VERSION = 1
 
-            msg = (
-                make_field(VERSION)
-                + make_field(reqId)
-                + make_field(contractInfo)
-            )
+            msg = make_field(VERSION) + make_field(reqId) + make_field(contractInfo)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.UPDATE_DISPLAY_GROUP, msg)
@@ -4403,7 +4702,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4418,10 +4722,7 @@ class EClient(object):
 
         VERSION = 1
 
-        msg = (
-            make_field(VERSION)
-            + make_field(reqId)
-        )
+        msg = make_field(VERSION) + make_field(reqId)
 
         self.sendMsg(OUT.UNSUBSCRIBE_FROM_GROUP_EVENTS, msg)
 
@@ -4432,7 +4733,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4457,14 +4763,12 @@ class EClient(object):
         try:
             VERSION = 1
 
-            msg = (
-                make_field(VERSION)
-                + make_field(apiName)
-                + make_field(apiVersion)
-            )
+            msg = make_field(VERSION) + make_field(apiName) + make_field(apiVersion)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.VERIFY_REQUEST, msg)
@@ -4476,7 +4780,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4491,13 +4800,12 @@ class EClient(object):
         try:
             VERSION = 1
 
-            msg = (
-                make_field(VERSION)
-                + make_field(apiData)
-            )
+            msg = make_field(VERSION) + make_field(apiData)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.VERIFY_MESSAGE, msg)
@@ -4509,7 +4817,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4542,7 +4855,9 @@ class EClient(object):
             )
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.VERIFY_AND_AUTH_REQUEST, msg)
@@ -4554,7 +4869,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_LINKING:
@@ -4569,14 +4889,12 @@ class EClient(object):
         try:
             VERSION = 1
 
-            msg = (
-                make_field(VERSION)
-                + make_field(apiData)
-                + make_field(xyzResponse)
-            )
+            msg = make_field(VERSION) + make_field(apiData) + make_field(xyzResponse)
 
         except ClientException as ex:
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text)
+            self.wrapper.error(
+                NO_VALID_ID, currentTimeMillis(), ex.code, ex.msg + ex.text
+            )
             return
 
         self.sendMsg(OUT.VERIFY_AND_AUTH_MESSAGE, msg)
@@ -4600,7 +4918,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_SEC_DEF_OPT_PARAMS_REQ:
@@ -4639,7 +4962,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         msg = make_field(reqId)
@@ -4650,7 +4978,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_FAMILY_CODES:
@@ -4668,7 +5001,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_REQ_MATCHING_SYMBOLS:
@@ -4681,10 +5019,7 @@ class EClient(object):
             return
 
         try:
-            msg = (
-                make_field(reqId)
-                + make_field(pattern)
-            )
+            msg = make_field(reqId) + make_field(pattern)
 
         except ClientException as ex:
             self.wrapper.error(reqId, currentTimeMillis(), ex.code, ex.msg + ex.text)
@@ -4701,7 +5036,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         msg = make_field(apiOnly)
@@ -4712,13 +5052,18 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_WSHE_CALENDAR:
             self.wrapper.error(
                 NO_VALID_ID,
-                currentTimeMillis(), 
+                currentTimeMillis(),
                 UPDATE_TWS.code(),
                 UPDATE_TWS.msg() + " It does not support WSHE Calendar API.",
             )
@@ -4737,7 +5082,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_WSHE_CALENDAR:
@@ -4753,15 +5103,16 @@ class EClient(object):
 
         self.sendMsg(OUT.CANCEL_WSH_META_DATA, msg)
 
-    def reqWshEventData(
-        self,
-        reqId: int,
-        wshEventData: WshEventData
-    ):
+    def reqWshEventData(self, reqId: int, wshEventData: WshEventData):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_WSHE_CALENDAR:
@@ -4833,7 +5184,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_WSHE_CALENDAR:
@@ -4853,7 +5209,12 @@ class EClient(object):
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_USER_INFO:
@@ -4868,14 +5229,19 @@ class EClient(object):
         msg = make_field(reqId)
 
         self.sendMsg(OUT.REQ_USER_INFO, msg)
-        
+
     def reqCurrentTimeInMillis(self):
         """Asks the current system time in milliseconds on the server side."""
 
         self.logRequest(current_fn_name(), vars())
 
         if not self.isConnected():
-            self.wrapper.error(NO_VALID_ID, currentTimeMillis(), NOT_CONNECTED.code(), NOT_CONNECTED.msg())
+            self.wrapper.error(
+                NO_VALID_ID,
+                currentTimeMillis(),
+                NOT_CONNECTED.code(),
+                NOT_CONNECTED.msg(),
+            )
             return
 
         if self.serverVersion() < MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS:
@@ -4883,9 +5249,9 @@ class EClient(object):
                 NO_VALID_ID,
                 currentTimeMillis(),
                 UPDATE_TWS.code(),
-                UPDATE_TWS.msg() + " It does not support current time in millis requests.",
+                UPDATE_TWS.msg()
+                + " It does not support current time in millis requests.",
             )
             return
-        
-        self.sendMsg(OUT.REQ_CURRENT_TIME_IN_MILLIS, "")
 
+        self.sendMsg(OUT.REQ_CURRENT_TIME_IN_MILLIS, "")

@@ -15,6 +15,7 @@ message use the 'unified version': the agreed up min version of both
 server and client.
 
 """
+
 import logging
 from decimal import Decimal
 
@@ -54,8 +55,9 @@ from ibapi.protobuf.OrderStatus_pb2 import OrderStatus as OrderStatusProto
 from ibapi.protobuf.OpenOrder_pb2 import OpenOrder as OpenOrderProto
 from ibapi.protobuf.OpenOrdersEnd_pb2 import OpenOrdersEnd as OpenOrdersEndProto
 from ibapi.protobuf.ErrorMessage_pb2 import ErrorMessage as ErrorMessageProto
-from ibapi.protobuf.ExecutionDetails_pb2 import ExecutionDetails as ExecutionDetailsProto
-from ibapi.protobuf.ExecutionDetailsEnd_pb2 import ExecutionDetailsEnd as ExecutionDetailsEndProto
+from ibapi.protobuf.ExecutionDetails_pb2 import (
+    ExecutionDetails as ExecutionDetailsProto,
+)
 
 
 logger = logging.getLogger(__name__)

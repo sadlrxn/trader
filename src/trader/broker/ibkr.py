@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
 from itertools import count
@@ -44,7 +43,9 @@ _VOLUME_TICK = 8
 class _IBApp(EWrapper, EClient):
     """Bridge low-level IBKR callbacks into normalized broker events."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[BrokerEvent]) -> None:
+    def __init__(
+        self, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue[BrokerEvent]
+    ) -> None:
         """Initialize the bridge application.
 
         Args:
@@ -79,7 +80,9 @@ class _IBApp(EWrapper, EClient):
         self._ready.wait(timeout=10)
         with self._order_lock:
             if self._next_order_id is None:
-                raise RuntimeError("Interactive Brokers did not publish a next valid order ID.")
+                raise RuntimeError(
+                    "Interactive Brokers did not publish a next valid order ID."
+                )
             order_id = self._next_order_id
             self._next_order_id += 1
             return order_id
@@ -141,13 +144,19 @@ class _IBApp(EWrapper, EClient):
         """Emit a connection-established event."""
 
         super().connectAck()
-        self._emit(BrokerEvent(kind=BrokerEventKind.CONNECTED, timestamp=datetime.now(tz=UTC)))
+        self._emit(
+            BrokerEvent(kind=BrokerEventKind.CONNECTED, timestamp=datetime.now(tz=UTC))
+        )
 
     def connectionClosed(self) -> None:
         """Emit a disconnect event."""
 
         super().connectionClosed()
-        self._emit(BrokerEvent(kind=BrokerEventKind.DISCONNECTED, timestamp=datetime.now(tz=UTC)))
+        self._emit(
+            BrokerEvent(
+                kind=BrokerEventKind.DISCONNECTED, timestamp=datetime.now(tz=UTC)
+            )
+        )
 
     def error(
         self,
@@ -160,7 +169,9 @@ class _IBApp(EWrapper, EClient):
         """Translate IBKR errors into broker events."""
 
         if errorCode == 162 and reqId in self._scanner_requests:
-            logger.debug("Ignoring expected scanner cancellation callback for request %s", reqId)
+            logger.debug(
+                "Ignoring expected scanner cancellation callback for request %s", reqId
+            )
             self._scanner_requests.discard(reqId)
             return
         super().error(reqId, errorTime, errorCode, errorString, advancedOrderRejectJson)
@@ -256,7 +267,9 @@ class _IBApp(EWrapper, EClient):
     ) -> None:
         """Forward scanner results into the normalized event queue."""
 
-        super().scannerData(reqId, rank, contractDetails, distance, benchmark, projection, legsStr)
+        super().scannerData(
+            reqId, rank, contractDetails, distance, benchmark, projection, legsStr
+        )
         symbol = contractDetails.contract.symbol
         candidate = ScannerCandidate(
             symbol=symbol,
@@ -278,9 +291,15 @@ class _IBApp(EWrapper, EClient):
         """Emit the scanner end marker."""
 
         super().scannerDataEnd(reqId)
-        self._emit(BrokerEvent(kind=BrokerEventKind.SCANNER_END, timestamp=datetime.now(tz=UTC)))
+        self._emit(
+            BrokerEvent(
+                kind=BrokerEventKind.SCANNER_END, timestamp=datetime.now(tz=UTC)
+            )
+        )
 
-    def accountSummary(self, reqId: int, account: str, tag: str, value: str, currency: str) -> None:
+    def accountSummary(
+        self, reqId: int, account: str, tag: str, value: str, currency: str
+    ) -> None:
         """Forward account summary values into the normalized event queue."""
 
         super().accountSummary(reqId, account, tag, value, currency)
@@ -297,9 +316,15 @@ class _IBApp(EWrapper, EClient):
         """Emit the account summary completion event."""
 
         super().accountSummaryEnd(reqId)
-        self._emit(BrokerEvent(kind=BrokerEventKind.ACCOUNT_END, timestamp=datetime.now(tz=UTC)))
+        self._emit(
+            BrokerEvent(
+                kind=BrokerEventKind.ACCOUNT_END, timestamp=datetime.now(tz=UTC)
+            )
+        )
 
-    def position(self, account: str, contract: Contract, pos: Decimal, avgCost: float) -> None:
+    def position(
+        self, account: str, contract: Contract, pos: Decimal, avgCost: float
+    ) -> None:
         """Forward live broker positions into the normalized event queue."""
 
         super().position(account, contract, pos, avgCost)
@@ -317,7 +342,11 @@ class _IBApp(EWrapper, EClient):
         """Emit the broker position snapshot completion event."""
 
         super().positionEnd()
-        self._emit(BrokerEvent(kind=BrokerEventKind.POSITION_END, timestamp=datetime.now(tz=UTC)))
+        self._emit(
+            BrokerEvent(
+                kind=BrokerEventKind.POSITION_END, timestamp=datetime.now(tz=UTC)
+            )
+        )
 
     def orderStatus(
         self,
@@ -416,7 +445,9 @@ class IBBrokerAdapter:
         if not self._app.isConnected():
             message = f"Unable to connect to IBKR at {self._settings.ib_host}:{self._settings.ib_port}."
             raise ConnectionError(message)
-        self._run_thread = threading.Thread(target=self._app.run, daemon=True, name="ibkr-reader")
+        self._run_thread = threading.Thread(
+            target=self._app.run, daemon=True, name="ibkr-reader"
+        )
         self._run_thread.start()
         ready = await asyncio.to_thread(self._app.wait_until_ready, timeout_seconds)
         if not ready or not self._app.isConnected():
@@ -461,7 +492,9 @@ class IBBrokerAdapter:
             await asyncio.to_thread(func, *args)
         except (BrokenPipeError, OSError, AttributeError) as error:
             await self.disconnect()
-            raise ConnectionError("IBKR connection dropped while sending a request.") from error
+            raise ConnectionError(
+                "IBKR connection dropped while sending a request."
+            ) from error
 
     async def sync_account(self) -> None:
         """Request account summary and open positions."""
@@ -469,7 +502,9 @@ class IBBrokerAdapter:
         if self._app is None or not self.is_connected():
             return
         req_id = self._app.next_request_id()
-        await self._call_app(self._app.reqAccountSummary, req_id, "All", "NetLiquidation")
+        await self._call_app(
+            self._app.reqAccountSummary, req_id, "All", "NetLiquidation"
+        )
         await self._call_app(self._app.reqPositions)
 
     async def refresh_scanner(self) -> None:
@@ -486,18 +521,28 @@ class IBBrokerAdapter:
         subscription.belowPrice = float(self._settings.trader_scan_below_price)
         subscription.aboveVolume = self._settings.trader_scan_above_volume
         if self._settings.trader_scan_market_cap_below > 0:
-            subscription.marketCapBelow = float(self._settings.trader_scan_market_cap_below)
+            subscription.marketCapBelow = float(
+                self._settings.trader_scan_market_cap_below
+            )
         req_id = self._app.next_request_id()
         self._scanner_request_id = req_id
         self._app.register_scanner(req_id)
-        await self._call_app(self._app.reqScannerSubscription, req_id, subscription, [], [])
+        await self._call_app(
+            self._app.reqScannerSubscription, req_id, subscription, [], []
+        )
 
     async def cancel_scanner(self) -> None:
         """Cancel the active scanner subscription."""
 
-        if self._app is None or self._scanner_request_id is None or not self.is_connected():
+        if (
+            self._app is None
+            or self._scanner_request_id is None
+            or not self.is_connected()
+        ):
             return
-        await self._call_app(self._app.cancelScannerSubscription, self._scanner_request_id)
+        await self._call_app(
+            self._app.cancelScannerSubscription, self._scanner_request_id
+        )
         self._scanner_request_id = None
 
     async def subscribe_symbol(self, symbol: str) -> None:
@@ -511,7 +556,9 @@ class IBBrokerAdapter:
             market_req_id = self._app.next_request_id()
             self._market_data_requests[symbol] = market_req_id
             self._app.register_market_data(market_req_id, symbol)
-            await self._call_app(self._app.reqMktData, market_req_id, contract, "", False, False, [])
+            await self._call_app(
+                self._app.reqMktData, market_req_id, contract, "", False, False, []
+            )
 
         historical_req_id = self._historical_requests.get(symbol)
         if historical_req_id is None:
@@ -544,7 +591,9 @@ class IBBrokerAdapter:
         if historical_req_id is not None:
             await self._call_app(self._app.cancelHistoricalData, historical_req_id)
 
-    async def place_entry_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
+    async def place_entry_order(
+        self, symbol: str, quantity: int, limit_price: Decimal
+    ) -> OrderRecord:
         """Submit a limit buy order for an entry."""
 
         return await self._place_order(
@@ -555,7 +604,9 @@ class IBBrokerAdapter:
             order=build_limit_order("BUY", quantity, limit_price, tif="DAY"),
         )
 
-    async def place_stop_order(self, symbol: str, quantity: int, stop_price: Decimal) -> OrderRecord:
+    async def place_stop_order(
+        self, symbol: str, quantity: int, stop_price: Decimal
+    ) -> OrderRecord:
         """Submit a protective stop order."""
 
         return await self._place_order(
@@ -566,7 +617,9 @@ class IBBrokerAdapter:
             order=build_stop_order("SELL", quantity, stop_price),
         )
 
-    async def place_target_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
+    async def place_target_order(
+        self, symbol: str, quantity: int, limit_price: Decimal
+    ) -> OrderRecord:
         """Submit the first take-profit limit order."""
 
         return await self._place_order(
@@ -621,7 +674,9 @@ class IBBrokerAdapter:
         )
         return target_record, stop_record
 
-    async def place_exit_order(self, symbol: str, quantity: int, limit_price: Decimal) -> OrderRecord:
+    async def place_exit_order(
+        self, symbol: str, quantity: int, limit_price: Decimal
+    ) -> OrderRecord:
         """Submit a marketable limit order to exit a position immediately."""
 
         return await self._place_order(
@@ -650,9 +705,13 @@ class IBBrokerAdapter:
         req_id = self._app.next_request_id()
         self._vix_request_id = req_id
         self._app.register_market_data(req_id, "VIX")
-        await self._call_app(self._app.reqMktData, req_id, contract, "", False, False, [])
+        await self._call_app(
+            self._app.reqMktData, req_id, contract, "", False, False, []
+        )
 
-    async def place_trailing_stop(self, symbol: str, quantity: int, trail_amount: float) -> OrderRecord:
+    async def place_trailing_stop(
+        self, symbol: str, quantity: int, trail_amount: float
+    ) -> OrderRecord:
         """Submit a trailing stop order."""
 
         order = build_trailing_stop_order("SELL", quantity, trail_amount)
@@ -664,12 +723,16 @@ class IBBrokerAdapter:
             order=order,
         )
 
-    async def replace_stop_order(self, symbol: str, quantity: int, stop_price: Decimal, old_order_id: int | None) -> OrderRecord:
+    async def replace_stop_order(
+        self, symbol: str, quantity: int, stop_price: Decimal, old_order_id: int | None
+    ) -> OrderRecord:
         """Replace an existing stop with a new stop order."""
 
         if old_order_id is not None:
             await self.cancel_order(old_order_id)
-        return await self.place_stop_order(symbol=symbol, quantity=quantity, stop_price=stop_price)
+        return await self.place_stop_order(
+            symbol=symbol, quantity=quantity, stop_price=stop_price
+        )
 
     async def _place_order(
         self,
@@ -690,8 +753,12 @@ class IBBrokerAdapter:
             purpose=purpose,
             side=side,
             quantity=quantity,
-            limit_price=Decimal(str(order.lmtPrice)) if getattr(order, "lmtPrice", None) not in (None, 1.7976931348623157e308) else None,
-            stop_price=Decimal(str(order.auxPrice)) if getattr(order, "auxPrice", None) not in (None, 1.7976931348623157e308) else None,
+            limit_price=Decimal(str(order.lmtPrice))
+            if getattr(order, "lmtPrice", None) not in (None, 1.7976931348623157e308)
+            else None,
+            stop_price=Decimal(str(order.auxPrice))
+            if getattr(order, "auxPrice", None) not in (None, 1.7976931348623157e308)
+            else None,
         )
         self._app.register_order(record)
         contract = build_stock_contract(symbol)

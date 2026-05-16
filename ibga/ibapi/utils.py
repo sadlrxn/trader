@@ -154,17 +154,22 @@ def ExerciseStaticMethods(klass):
             print(var())
             print()
 
+
 def isValidFloatValue(val: float) -> bool:
-	return val != UNSET_DOUBLE
+    return val != UNSET_DOUBLE
+
 
 def isValidIntValue(val: int) -> bool:
     return val != UNSET_INTEGER
 
+
 def isValidLongValue(val: int) -> bool:
     return val != UNSET_LONG
 
+
 def isValidDecimalValue(val: Decimal) -> bool:
     return val != UNSET_DECIMAL
+
 
 def floatMaxString(val: float):
     if val is None:
@@ -183,7 +188,10 @@ def intMaxString(val):
 
 
 def isAsciiPrintable(val):
-    return all(ord(c) >= 32 and ord(c) < 127 or ord(c) == 9 or ord(c) == 10 or ord(c) == 13 for c in val)
+    return all(
+        ord(c) >= 32 and ord(c) < 127 or ord(c) == 9 or ord(c) == 10 or ord(c) == 13
+        for c in val
+    )
 
 
 def decimalMaxString(val: Decimal):
@@ -210,14 +218,24 @@ def log_(func, params, action):
             del params["self"]
         logger.info(f"{action} {func} {params}")
 
-def currentTimeMillis() :
+
+def currentTimeMillis():
     return round(time.time() * 1000)
 
+
 def getTimeStrFromMillis(time: int):
-    return datetime.datetime.fromtimestamp(time / 1000.0).strftime("%b %d, %Y %H:%M:%S.%f")[:-3] if time > 0 else ""
+    return (
+        datetime.datetime.fromtimestamp(time / 1000.0).strftime(
+            "%b %d, %Y %H:%M:%S.%f"
+        )[:-3]
+        if time > 0
+        else ""
+    )
+
 
 def listOfValues(cls):
     return list(map(lambda c: c, cls))
+
 
 def getEnumTypeFromString(cls, stringIn):
     for item in cls:
@@ -225,9 +243,9 @@ def getEnumTypeFromString(cls, stringIn):
             return item
     return listOfValues(cls)[0]
 
+
 def getEnumTypeName(cls, valueIn):
     for item in cls:
         if item == valueIn:
             return item.value[1]
     return listOfValues(cls)[0].value[1]
-

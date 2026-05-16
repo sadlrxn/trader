@@ -8,7 +8,17 @@ from decimal import Decimal
 import asyncio
 
 from trader.config import Settings
-from trader.models import Bar, BrokerEvent, BrokerEventKind, ClosedPosition, ManagedPosition, Quote, RiskDecision, SignalDecision, SignalType
+from trader.models import (
+    Bar,
+    BrokerEvent,
+    BrokerEventKind,
+    ClosedPosition,
+    ManagedPosition,
+    Quote,
+    RiskDecision,
+    SignalDecision,
+    SignalType,
+)
 from trader.runtime import TradingRuntime
 
 
@@ -126,7 +136,9 @@ def test_start_handles_subscription_failure_without_raising(tmp_path) -> None:
     asyncio.run(runtime.start())
 
     assert runtime.status.connected is False
-    assert runtime.status.last_error == "IBKR connection dropped while sending a request."
+    assert (
+        runtime.status.last_error == "IBKR connection dropped while sending a request."
+    )
     assert runtime._started is False
     runtime.state_store.close()
 
@@ -166,7 +178,9 @@ def test_apply_watchlist_keeps_open_positions_subscribed(tmp_path) -> None:
     runtime.state_store.close()
 
 
-def test_apply_watchlist_discards_fallback_symbols_when_scanner_returns_live_names(tmp_path) -> None:
+def test_apply_watchlist_discards_fallback_symbols_when_scanner_returns_live_names(
+    tmp_path,
+) -> None:
     """Replace fallback subscriptions with live scanner symbols as soon as they exist."""
 
     settings = Settings.model_validate(
@@ -251,7 +265,9 @@ def test_evaluate_signal_uses_live_market_phase_instead_of_stale_flag(tmp_path) 
     runtime = TradingRuntime(settings=settings, log_sink=deque(maxlen=10))
     runtime.status.market_open = False
     runtime.status.equity = Decimal("10000")
-    runtime.quotes["AMD"] = Quote(symbol="AMD", last=Decimal("10.00"), updated_at=datetime.now(tz=UTC))
+    runtime.quotes["AMD"] = Quote(
+        symbol="AMD", last=Decimal("10.00"), updated_at=datetime.now(tz=UTC)
+    )
     entered: dict[str, object] = {}
 
     runtime.market_phase = lambda: "open"  # type: ignore[method-assign]
@@ -264,7 +280,9 @@ def test_evaluate_signal_uses_live_market_phase_instead_of_stale_flag(tmp_path) 
         target_price=Decimal("10.40"),
         reason="test",
     )
-    runtime.risk.size_signal = lambda **kwargs: RiskDecision(approved=True, quantity=50, reason="approved")  # type: ignore[method-assign]
+    runtime.risk.size_signal = lambda **kwargs: RiskDecision(
+        approved=True, quantity=50, reason="approved"
+    )  # type: ignore[method-assign]
 
     async def _enter(signal: SignalDecision, quantity: int) -> None:
         entered["signal"] = signal
@@ -340,7 +358,9 @@ def test_upsert_bar_retains_enough_history_for_premarket_setups(tmp_path) -> Non
         runtime._upsert_bar(
             runtime_bar(
                 symbol="AMD",
-                timestamp=datetime(2026, 3, 15, 8 + (minute // 60), minute % 60, tzinfo=UTC),
+                timestamp=datetime(
+                    2026, 3, 15, 8 + (minute // 60), minute % 60, tzinfo=UTC
+                ),
                 open_price="10.00",
                 high_price="10.10",
                 low_price="9.90",
@@ -448,7 +468,9 @@ def test_day_trading_flatten_requests_manual_exits_near_close(tmp_path) -> None:
         closed.append(symbol)
 
     runtime.close_position = _close  # type: ignore[method-assign]
-    runtime.market_clock.now = lambda: datetime(2026, 3, 15, 15, 56, tzinfo=runtime.market_clock._timezone)  # type: ignore[method-assign]
+    runtime.market_clock.now = lambda: datetime(
+        2026, 3, 15, 15, 56, tzinfo=runtime.market_clock._timezone
+    )  # type: ignore[method-assign]
 
     asyncio.run(runtime._enforce_day_trading_flatten())
 
@@ -482,7 +504,9 @@ def test_overnight_positions_are_flattened_on_new_trading_day(tmp_path) -> None:
         closed.append(symbol)
 
     runtime.close_position = _close  # type: ignore[method-assign]
-    runtime.market_clock.now = lambda: datetime(2026, 3, 15, 9, 45, tzinfo=runtime.market_clock._timezone)  # type: ignore[method-assign]
+    runtime.market_clock.now = lambda: datetime(
+        2026, 3, 15, 9, 45, tzinfo=runtime.market_clock._timezone
+    )  # type: ignore[method-assign]
 
     asyncio.run(runtime._flatten_overnight_positions())
 

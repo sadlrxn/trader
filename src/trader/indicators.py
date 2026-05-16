@@ -6,7 +6,9 @@ import pandas as pd
 import numpy as np
 
 
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+def atr(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+) -> pd.Series:
     """Average True Range."""
 
     tr = pd.concat(
@@ -65,8 +67,8 @@ def ema(close: pd.Series, period: int) -> pd.Series:
 def compute_indicators(bars: pd.DataFrame) -> dict:
     """Compute all indicators from OHLCV bars. Returns dict of latest scalar values."""
 
-    c, h, l = bars["close"], bars["high"], bars["low"]
-    atr_val = atr(h, l, c)
+    c, h, lo = bars["close"], bars["high"], bars["low"]
+    atr_val = atr(h, lo, c)
     rsi_val = rsi(c)
     macd_line, macd_signal, macd_hist = macd(c)
     bb_upper, bb_lower, bb_pct = bollinger_bands(c)
@@ -83,10 +85,18 @@ def compute_indicators(bars: pd.DataFrame) -> dict:
         ),
         "rsi": float(rsi_val.iloc[last]) if pd.notna(rsi_val.iloc[last]) else None,
         "macd": float(macd_line.iloc[last]) if pd.notna(macd_line.iloc[last]) else None,
-        "macd_signal": float(macd_signal.iloc[last]) if pd.notna(macd_signal.iloc[last]) else None,
-        "macd_histogram": float(macd_hist.iloc[last]) if pd.notna(macd_hist.iloc[last]) else None,
-        "bb_upper": float(bb_upper.iloc[last]) if pd.notna(bb_upper.iloc[last]) else None,
-        "bb_lower": float(bb_lower.iloc[last]) if pd.notna(bb_lower.iloc[last]) else None,
+        "macd_signal": float(macd_signal.iloc[last])
+        if pd.notna(macd_signal.iloc[last])
+        else None,
+        "macd_histogram": float(macd_hist.iloc[last])
+        if pd.notna(macd_hist.iloc[last])
+        else None,
+        "bb_upper": float(bb_upper.iloc[last])
+        if pd.notna(bb_upper.iloc[last])
+        else None,
+        "bb_lower": float(bb_lower.iloc[last])
+        if pd.notna(bb_lower.iloc[last])
+        else None,
         "bb_pct": float(bb_pct.iloc[last]) if pd.notna(bb_pct.iloc[last]) else None,
         "ema9": float(ema9.iloc[last]) if pd.notna(ema9.iloc[last]) else None,
         "ema20": float(ema20.iloc[last]) if pd.notna(ema20.iloc[last]) else None,

@@ -3,7 +3,6 @@ Copyright (C) 2025 Interactive Brokers LLC. All rights reserved. This code is su
  and conditions of the IB API Non-Commercial License or the IB API Commercial License, as applicable.
 """
 
-
 from ibapi.object_implem import Object
 from ibapi.const import UNSET_DECIMAL
 from ibapi.const import UNSET_INTEGER
@@ -13,6 +12,7 @@ from ibapi.utils import floatMaxString
 from ibapi.utils import longMaxString
 from ibapi.utils import getEnumTypeName
 from enum import Enum
+
 
 class Execution(Object):
     def __init__(self):
@@ -82,6 +82,7 @@ class ExecutionFilter(Object):
         self.lastNDays = UNSET_INTEGER
         self.specificDates = None
 
+
 class OptionExerciseType(Enum):
     NoneItem = (-1, "None")
     Exercise = (1, "Exercise")
@@ -92,4 +93,3 @@ class OptionExerciseType(Enum):
     Expired = (102, "Expired")
     Netting = (103, "Netting")
     AutoexerciseTrading = (200, "AutoexerciseTrading")
-

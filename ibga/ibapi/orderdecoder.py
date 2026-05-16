@@ -2,6 +2,7 @@
 Copyright (C) 2025 Interactive Brokers LLC. All rights reserved. This code is subject to the terms
  and conditions of the IB API Non-Commercial License or the IB API Commercial License, as applicable.
 """
+
 import logging
 from _decimal import Decimal
 
@@ -33,7 +34,7 @@ from ibapi.server_versions import (
     MIN_SERVER_VER_INCLUDE_OVERNIGHT,
     MIN_SERVER_VER_CME_TAGGING_FIELDS_IN_OPEN_ORDER,
     MIN_SERVER_VER_FULL_ORDER_PREVIEW_FIELDS,
-    MIN_SERVER_VER_SUBMITTER
+    MIN_SERVER_VER_SUBMITTER,
 )
 from ibapi.tag_value import TagValue
 from ibapi.utils import decode, SHOW_UNSET, isPegBenchOrder
@@ -365,21 +366,39 @@ class OrderDecoder(Object):
         self.orderState.minCommissionAndFees = decode(float, fields, SHOW_UNSET)
         self.orderState.maxCommissionAndFees = decode(float, fields, SHOW_UNSET)
         self.orderState.commissionAndFeesCurrency = decode(str, fields)
-        
+
         if self.serverVersion >= MIN_SERVER_VER_FULL_ORDER_PREVIEW_FIELDS:
             self.orderState.marginCurrency = decode(str, fields)
-            self.orderState.initMarginBeforeOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.maintMarginBeforeOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.equityWithLoanBeforeOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.initMarginChangeOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.maintMarginChangeOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.equityWithLoanChangeOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.initMarginAfterOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.maintMarginAfterOutsideRTH = decode(float, fields, SHOW_UNSET)
-            self.orderState.equityWithLoanAfterOutsideRTH = decode(float, fields, SHOW_UNSET)
+            self.orderState.initMarginBeforeOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.maintMarginBeforeOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.equityWithLoanBeforeOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.initMarginChangeOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.maintMarginChangeOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.equityWithLoanChangeOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.initMarginAfterOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.maintMarginAfterOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
+            self.orderState.equityWithLoanAfterOutsideRTH = decode(
+                float, fields, SHOW_UNSET
+            )
             self.orderState.suggestedSize = decode(Decimal, fields)
             self.orderState.rejectReason = decode(str, fields)
-        
+
             accountsCount = decode(int, fields)
             if accountsCount > 0:
                 self.orderState.orderAllocations = []
@@ -536,4 +555,3 @@ class OrderDecoder(Object):
     def decodeSubmitter(self, fields):
         if self.serverVersion >= MIN_SERVER_VER_SUBMITTER:
             self.order.submitter = decode(str, fields)
-
