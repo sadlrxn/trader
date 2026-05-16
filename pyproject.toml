@@ -32,3 +32,10 @@ package = true
 
 [tool.uv.sources]
 ibapi = { path = "ibga", editable = true }
+
+[tool.ruff]
+# ibga/ is the vendored ibapi source (Interactive Brokers' upstream code).
+extend-exclude = ["ibga"]
+
+[tool.pyright]
+exclude = ["ibga", "**/__pycache__", ".venv"]
